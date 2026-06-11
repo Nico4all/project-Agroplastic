@@ -23,12 +23,28 @@ import {
   Sparkles,
   Utensils,
   Wallet,
-  X,
 } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { categoriesApi } from '../api/resources';
 import { Category, CategoryType } from '../types';
-import { Toggle, useToast } from '../ui/components';
+import { Badge, Button, Card, EmptyState, Field, Input, Modal, Spinner, Toggle, useToast } from '../ui/components';
+
+const COLOR_SWATCHES = [
+  '#0F9B62',
+  '#10b981',
+  '#06b6d4',
+  '#3b82f6',
+  '#5667CE',
+  '#8b5cf6',
+  '#a855f7',
+  '#ec4899',
+  '#DD4A48',
+  '#ef4444',
+  '#f59e0b',
+  '#C8A24B',
+  '#64748b',
+  '#16251E',
+];
 
 const categoryIcons = [
   { value: 'utensils', label: 'Comida', icon: Utensils },
@@ -53,6 +69,20 @@ const categoryIcons = [
   { value: 'sparkles', label: 'Otros', icon: Sparkles },
 ];
 
+type CategoryFormState = {
+  name: string;
+  type: CategoryType;
+  color: string;
+  icon: string;
+};
+
+const emptyForm: CategoryFormState = {
+  name: '',
+  type: 'EXPENSE',
+  color: COLOR_SWATCHES[0],
+  icon: 'sparkles',
+};
+
 function CategoryIconPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
@@ -64,6 +94,7 @@ function CategoryIconPicker({ value, onChange }: { value: string; onChange: (val
             key={item.value}
             type="button"
             title={item.label}
+            aria-label={item.label}
             onClick={() => onChange(item.value)}
             className={`flex h-10 w-10 items-center justify-center rounded-lg border transition ${
               selected ? 'border-brand bg-brand-soft text-brand-dark' : 'border-line bg-surface text-mute hover:bg-paper hover:text-ink'
@@ -77,16 +108,154 @@ function CategoryIconPicker({ value, onChange }: { value: string; onChange: (val
   );
 }
 
-function CategoryIcon({ value }: { value?: string | null }) {
+function CategoryIcon({ value, className = '' }: { value?: string | null; className?: string }) {
   const item = categoryIcons.find((icon) => icon.value === value);
   const Icon = item?.icon || Sparkles;
-  return <Icon size={18} />;
+  return <Icon className={className} size={18} />;
+}
+
+function CategoryModal({
+  open,
+  editing,
+  form,
+  busy,
+  onClose,
+  onSubmit,
+  onChange,
+}: {
+  open: boolean;
+  editing: Category | null;
+  form: CategoryFormState;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+  onChange: (form: CategoryFormState) => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={editing ? 'Editar categoria' : form.type === 'INCOME' ? 'Nueva categoria de ingreso' : 'Nueva categoria de gasto'}
+    >
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field label="Nombre">
+          <Input
+            required
+            maxLength={100}
+            placeholder={form.type === 'INCOME' ? 'Ej. Salario, Freelance...' : 'Ej. Mercado, Servicios...'}
+            value={form.name}
+            onChange={(event) => onChange({ ...form, name: event.target.value })}
+          />
+        </Field>
+
+        <Field label="Color">
+          <div className="flex flex-wrap gap-2">
+            {COLOR_SWATCHES.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={`Color ${color}`}
+                onClick={() => onChange({ ...form, color })}
+                className={`h-8 w-8 rounded-full transition ${
+                  form.color === color ? 'ring-2 ring-ink ring-offset-2' : 'hover:scale-110'
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Icono">
+          <CategoryIconPicker value={form.icon} onChange={(icon) => onChange({ ...form, icon })} />
+        </Field>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear categoria'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CategorySection({
+  type,
+  title,
+  categories,
+  onCreate,
+  onEdit,
+  onToggle,
+}: {
+  type: CategoryType;
+  title: string;
+  categories: Category[];
+  onCreate: (type: CategoryType) => void;
+  onEdit: (category: Category) => void;
+  onToggle: (category: Category, isActive: boolean) => void;
+}) {
+  const list = categories.filter((category) => category.type === type);
+  const activeCount = list.filter((category) => category.isActive).length;
+  const tone = type === 'INCOME' ? 'income' : 'expense';
+
+  return (
+    <Card className="p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold">{title}</h2>
+            <Badge tone={tone}>{list.length}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-mute">{activeCount} activas</p>
+        </div>
+        <Button variant="secondary" onClick={() => onCreate(type)}>
+          <Plus className="h-4 w-4" /> Anadir
+        </Button>
+      </div>
+
+      {list.length === 0 ? (
+        <EmptyState title={`Sin categorias de ${title.toLowerCase()}`} />
+      ) : (
+        <ul className="divide-y divide-line">
+          {list.map((category) => (
+            <li key={category.id} className="flex items-center gap-3 py-3">
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white"
+                style={{ backgroundColor: category.color || '#64748b' }}
+              >
+                <CategoryIcon value={category.icon} className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-ink">{category.name}</p>
+                <p className="text-xs text-mute">{category.isActive ? 'Activa' : 'Inactiva'}</p>
+              </div>
+              <Toggle
+                checked={category.isActive}
+                label={`Activar o inactivar ${category.name}`}
+                onChange={(value) => onToggle(category, value)}
+              />
+              <Button variant="ghost" className="px-2" title="Editar" onClick={() => onEdit(category)}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
 }
 
 export function CategoriesPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { data = [] } = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
+  const { data = [], isLoading } = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<Category | null>(null);
+  const [form, setForm] = useState<CategoryFormState>(emptyForm);
+
   const create = useMutation({
     mutationFn: categoriesApi.create,
     onSuccess: () => {
@@ -95,6 +264,7 @@ export function CategoriesPage() {
     },
     onError: () => toast('No se pudo guardar la categoria', 'error'),
   });
+
   const update = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<Category> }) => categoriesApi.update(id, payload),
     onSuccess: (_data, variables) => {
@@ -104,99 +274,89 @@ export function CategoriesPage() {
     },
     onError: () => toast('No se pudo actualizar la categoria', 'error'),
   });
-  const [form, setForm] = useState({ name: '', type: 'EXPENSE' as CategoryType, color: '#0F9B62', icon: 'sparkles' });
-  const [editing, setEditing] = useState<Record<string, { name: string; type: CategoryType; color: string; icon: string }>>({});
+
+  const openCreate = (type: CategoryType) => {
+    setEditing(null);
+    setForm({ ...emptyForm, type, icon: type === 'INCOME' ? 'banknote' : 'sparkles' });
+    setModalOpen(true);
+  };
+
+  const openEdit = (category: Category) => {
+    setEditing(category);
+    setForm({
+      name: category.name,
+      type: category.type,
+      color: category.color || COLOR_SWATCHES[0],
+      icon: category.icon || 'sparkles',
+    });
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditing(null);
+  };
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await create.mutateAsync(form);
-    setForm({ name: '', type: 'EXPENSE', color: '#0F9B62', icon: 'sparkles' });
+    const payload = {
+      name: form.name,
+      color: form.color,
+      icon: form.icon,
+      ...(editing ? {} : { type: form.type }),
+    };
+
+    try {
+      if (editing) await update.mutateAsync({ id: editing.id, payload });
+      else await create.mutateAsync(payload);
+
+      setModalOpen(false);
+      setEditing(null);
+      setForm(emptyForm);
+    } catch {
+      // El toast de error lo maneja la mutacion correspondiente.
+    }
   }
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-6">
       <div>
-        <h1 className="text-2xl font-black text-ink">Categorias</h1>
-        <p className="text-sm text-mute">Ingreso y gasto con color e icono para reportes.</p>
+        <h1 className="text-2xl font-extrabold tracking-tight">Categorias</h1>
+        <p className="text-sm text-mute">Organiza tus ingresos y gastos con tus propias categorias.</p>
       </div>
-      <form onSubmit={submit} className="panel grid gap-3 md:grid-cols-[1fr_160px_120px_auto]">
-        <input className="input" placeholder="Nombre" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-        <select className="input" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as CategoryType })}>
-          <option value="EXPENSE">Gasto</option>
-          <option value="INCOME">Ingreso</option>
-        </select>
-        <input className="input h-10" type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} />
-        <button className="btn-primary"><Plus size={18} /> Crear</button>
-        <div className="md:col-span-4">
-          <span className="label">Icono</span>
-          <CategoryIconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
+
+      {isLoading ? (
+        <Spinner />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <CategorySection
+            type="INCOME"
+            title="Ingresos"
+            categories={data}
+            onCreate={openCreate}
+            onEdit={openEdit}
+            onToggle={(category, isActive) => update.mutate({ id: category.id, payload: { isActive } })}
+          />
+          <CategorySection
+            type="EXPENSE"
+            title="Gastos"
+            categories={data}
+            onCreate={openCreate}
+            onEdit={openEdit}
+            onToggle={(category, isActive) => update.mutate({ id: category.id, payload: { isActive } })}
+          />
         </div>
-      </form>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {data.map((category) => (
-          <article key={category.id} className="panel">
-            {editing[category.id] ? (
-              <div className="space-y-3">
-                <input className="input" value={editing[category.id].name} onChange={(event) => setEditing({ ...editing, [category.id]: { ...editing[category.id], name: event.target.value } })} />
-                <select className="input" value={editing[category.id].type} onChange={(event) => setEditing({ ...editing, [category.id]: { ...editing[category.id], type: event.target.value as CategoryType } })}>
-                  <option value="EXPENSE">Gasto</option>
-                  <option value="INCOME">Ingreso</option>
-                </select>
-                <input className="input h-10" type="color" value={editing[category.id].color || '#64748b'} onChange={(event) => setEditing({ ...editing, [category.id]: { ...editing[category.id], color: event.target.value } })} />
-                <div>
-                  <span className="label">Icono</span>
-                  <CategoryIconPicker value={editing[category.id].icon || 'sparkles'} onChange={(icon) => setEditing({ ...editing, [category.id]: { ...editing[category.id], icon } })} />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    className="btn-primary"
-                    onClick={() => {
-                      update.mutate({ id: category.id, payload: editing[category.id] });
-                      const next = { ...editing };
-                      delete next[category.id];
-                      setEditing(next);
-                    }}
-                  >
-                    <Check size={17} /> Guardar
-                  </button>
-                  <button
-                    className="btn-soft"
-                    onClick={() => {
-                      const next = { ...editing };
-                      delete next[category.id];
-                      setEditing(next);
-                    }}
-                  >
-                    <X size={17} /> Cancelar
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <span className="mt-1 flex h-9 w-9 items-center justify-center rounded-xl text-white" style={{ background: category.color || '#64748b' }}>
-                    <CategoryIcon value={category.icon} />
-                  </span>
-                  <div>
-                    <p className="font-bold text-ink">{category.name}</p>
-                    <p className="text-sm text-mute">{category.type === 'INCOME' ? 'Ingreso' : 'Gasto'}</p>
-                    <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-bold ${category.isActive ? 'bg-brand-soft text-brand-dark' : 'bg-paper text-mute'}`}>
-                      {category.isActive ? 'Activa' : 'Inactiva'}
-                    </span>
-                  </div>
-                </div>
-                <button className="btn-soft px-2" title="Editar" onClick={() => setEditing({ ...editing, [category.id]: { name: category.name, type: category.type, color: category.color || '#64748b', icon: category.icon || 'sparkles' } })}>
-                  <Pencil size={17} />
-                </button>
-              </div>
-            )}
-            <div className="mt-4 flex items-center justify-between rounded-xl bg-paper px-3 py-2">
-              <span className="text-sm font-semibold text-mute">{category.isActive ? 'Categoria activa' : 'Categoria inactiva'}</span>
-              <Toggle checked={category.isActive} label="Activar o inactivar categoria" onChange={(value) => update.mutate({ id: category.id, payload: { isActive: value } })} />
-            </div>
-          </article>
-        ))}
-      </div>
+      )}
+
+      <CategoryModal
+        open={modalOpen}
+        editing={editing}
+        form={form}
+        busy={create.isPending || update.isPending}
+        onClose={closeModal}
+        onSubmit={submit}
+        onChange={setForm}
+      />
     </section>
   );
 }
