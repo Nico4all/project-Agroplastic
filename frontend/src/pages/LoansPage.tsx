@@ -4,22 +4,46 @@ import { FormEvent, useState } from 'react';
 import { accountsApi, loansApi } from '../api/resources';
 import { Loan, LoanType } from '../types';
 import { AccountBalanceCard } from '../ui/AccountBalanceCard';
+import { useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 
 export function LoansPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [type, setType] = useState<LoanType>('RECEIVABLE');
   const { data: accounts = [] } = useQuery({ queryKey: ['accounts'], queryFn: accountsApi.list });
   const { data } = useQuery({ queryKey: ['loans', type], queryFn: () => loansApi.list({ type }) });
-  const createLoan = useMutation({ mutationFn: loansApi.create, onSuccess: () => queryClient.invalidateQueries() });
-  const removeLoan = useMutation({ mutationFn: loansApi.remove, onSuccess: () => queryClient.invalidateQueries() });
+  const createLoan = useMutation({
+    mutationFn: loansApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Prestamo creado');
+    },
+    onError: () => toast('No se pudo crear el prestamo', 'error'),
+  });
+  const removeLoan = useMutation({
+    mutationFn: loansApi.remove,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Prestamo eliminado');
+    },
+    onError: () => toast('No se pudo eliminar el prestamo', 'error'),
+  });
   const createPayment = useMutation({
     mutationFn: ({ loanId, payload }: { loanId: string; payload: any }) => loansApi.createPayment(loanId, payload),
-    onSuccess: () => queryClient.invalidateQueries(),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Abono registrado');
+    },
+    onError: () => toast('No se pudo registrar el abono', 'error'),
   });
   const removePayment = useMutation({
     mutationFn: ({ loanId, paymentId }: { loanId: string; paymentId: string }) => loansApi.removePayment(loanId, paymentId),
-    onSuccess: () => queryClient.invalidateQueries(),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Abono eliminado');
+    },
+    onError: () => toast('No se pudo eliminar el abono', 'error'),
   });
   const activeAccounts = accounts.filter((account) => account.isActive);
   const [form, setForm] = useState({

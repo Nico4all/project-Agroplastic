@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Pencil, Plus, Power, X } from 'lucide-react';
+import { Check, Pencil, Plus, X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { accountsApi } from '../api/resources';
 import { Account, AccountType } from '../types';
+import { Toggle, useToast } from '../ui/components';
 import { money } from '../utils/format';
 
 const accountTypes: { value: AccountType; label: string }[] = [
@@ -16,9 +17,25 @@ const accountTypes: { value: AccountType; label: string }[] = [
 
 export function AccountsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data = [] } = useQuery({ queryKey: ['accounts'], queryFn: accountsApi.list });
-  const create = useMutation({ mutationFn: accountsApi.create, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }) });
-  const update = useMutation({ mutationFn: ({ id, payload }: { id: string; payload: Partial<Account> }) => accountsApi.update(id, payload), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }) });
+  const create = useMutation({
+    mutationFn: accountsApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast('Cuenta creada');
+    },
+    onError: () => toast('No se pudo guardar la cuenta', 'error'),
+  });
+  const update = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<Account> }) => accountsApi.update(id, payload),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      if ('isActive' in variables.payload) toast(variables.payload.isActive ? 'Cuenta activada' : 'Cuenta inactivada');
+      else toast('Cuenta actualizada');
+    },
+    onError: () => toast('No se pudo actualizar la cuenta', 'error'),
+  });
   const [form, setForm] = useState({ name: '', type: 'CASH' as AccountType, initialBalance: 0 });
   const [editing, setEditing] = useState<Record<string, { name: string; type: AccountType }>>({});
 
@@ -80,9 +97,10 @@ export function AccountsPage() {
               </div>
             )}
             <p className="mt-4 text-2xl font-black">{money(account.currentBalance)}</p>
-            <button className="btn-soft mt-3 w-full" onClick={() => update.mutate({ id: account.id, payload: { isActive: !account.isActive } })}>
-              <Power size={17} /> {account.isActive ? 'Inactivar cuenta' : 'Activar cuenta'}
-            </button>
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-paper px-3 py-2">
+              <span className="text-sm font-semibold text-mute">{account.isActive ? 'Cuenta activa' : 'Cuenta inactiva'}</span>
+              <Toggle checked={account.isActive} label="Activar o inactivar cuenta" onChange={(value) => update.mutate({ id: account.id, payload: { isActive: value } })} />
+            </div>
           </article>
         ))}
       </div>

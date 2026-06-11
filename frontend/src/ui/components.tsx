@@ -62,6 +62,21 @@ export function Card({ className = '', children }: { className?: string; childre
   return <div className={`card ${className}`}>{children}</div>;
 }
 
+export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${checked ? 'bg-brand' : 'bg-line'}`}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+    </button>
+  );
+}
+
 export function Badge({ tone, children }: { tone: 'income' | 'expense' | 'transfer' | 'neutral'; children: ReactNode }) {
   const tones = {
     income: 'bg-brand-soft text-brand-dark',

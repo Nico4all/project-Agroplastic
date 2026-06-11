@@ -4,15 +4,31 @@ import { FormEvent, useState } from 'react';
 import { accountsApi, categoriesApi, transactionsApi } from '../api/resources';
 import { TransactionType } from '../types';
 import { AccountBalanceCard } from '../ui/AccountBalanceCard';
+import { useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 
 export function TransactionsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data: accounts = [] } = useQuery({ queryKey: ['accounts'], queryFn: accountsApi.list });
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
   const { data: transactions } = useQuery({ queryKey: ['transactions'], queryFn: () => transactionsApi.list({ pageSize: 20 }) });
-  const create = useMutation({ mutationFn: transactionsApi.create, onSuccess: () => queryClient.invalidateQueries() });
-  const remove = useMutation({ mutationFn: transactionsApi.remove, onSuccess: () => queryClient.invalidateQueries() });
+  const create = useMutation({
+    mutationFn: transactionsApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Movimiento creado');
+    },
+    onError: () => toast('No se pudo crear el movimiento', 'error'),
+  });
+  const remove = useMutation({
+    mutationFn: transactionsApi.remove,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Movimiento eliminado');
+    },
+    onError: () => toast('No se pudo eliminar el movimiento', 'error'),
+  });
   const [form, setForm] = useState({ accountId: '', categoryId: '', type: 'EXPENSE' as TransactionType, amount: 0, transactionDate: dateInput(), description: '' });
   const filteredCategories = categories.filter((category) => category.type === form.type && category.isActive);
   const activeAccounts = accounts.filter((account) => account.isActive);

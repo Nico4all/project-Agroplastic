@@ -3,14 +3,30 @@ import { Plus, Trash2 } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { accountsApi, transfersApi } from '../api/resources';
 import { AccountBalanceCard } from '../ui/AccountBalanceCard';
+import { useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 
 export function TransfersPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data: accounts = [] } = useQuery({ queryKey: ['accounts'], queryFn: accountsApi.list });
   const { data: transfers } = useQuery({ queryKey: ['transfers'], queryFn: () => transfersApi.list({ pageSize: 20 }) });
-  const create = useMutation({ mutationFn: transfersApi.create, onSuccess: () => queryClient.invalidateQueries() });
-  const remove = useMutation({ mutationFn: transfersApi.remove, onSuccess: () => queryClient.invalidateQueries() });
+  const create = useMutation({
+    mutationFn: transfersApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Transferencia creada');
+    },
+    onError: () => toast('No se pudo crear la transferencia', 'error'),
+  });
+  const remove = useMutation({
+    mutationFn: transfersApi.remove,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast('Transferencia eliminada');
+    },
+    onError: () => toast('No se pudo eliminar la transferencia', 'error'),
+  });
   const activeAccounts = accounts.filter((account) => account.isActive);
   const [form, setForm] = useState({ fromAccountId: '', toAccountId: '', amount: 0, transferDate: dateInput(), description: '' });
   const fromAccount = accounts.find((account) => account.id === form.fromAccountId);

@@ -66,10 +66,13 @@ export function DashboardPage() {
         <ChartPanel title="Distribucion por cuenta">
           {data.charts.accountDistribution.length ? (
             <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie data={data.charts.accountDistribution} dataKey="value" nameKey="name" outerRadius={95} label fill="#f4a938" />
+              <BarChart data={data.charts.accountDistribution} margin={{ top: 12, right: 16, left: 0, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis tickFormatter={(value) => money(Number(value))} width={88} />
                 <Tooltip formatter={(value) => money(Number(value))} />
-              </PieChart>
+                <Bar dataKey="value" name="Saldo" fill="#0F9B62" radius={[8, 8, 0, 0]} minPointSize={3} />
+              </BarChart>
             </ResponsiveContainer>
           ) : <EmptyState text="Crea cuentas para ver distribucion." />}
         </ChartPanel>
