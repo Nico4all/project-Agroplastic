@@ -5,6 +5,7 @@ import { User } from '../types';
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
+  setCurrentUser: (user: User) => void;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     loading,
+    setCurrentUser: setUser,
     login: async (email, password) => {
       const { data } = await api.post('/auth/login', { email, password });
       setAccessToken(data.accessToken);

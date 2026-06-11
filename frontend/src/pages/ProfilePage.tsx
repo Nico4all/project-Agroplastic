@@ -1,34 +1,179 @@
-import { ShieldCheck } from 'lucide-react';
+import { FormEvent, useEffect, useState } from 'react';
+import { KeyRound, Save, ShieldCheck, UserRound } from 'lucide-react';
+import { profileApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
+import { Button, Card, Field, Input, useToast } from '../ui/components';
+
+function getApiError(error: any, fallback: string) {
+  const message = error?.response?.data?.message;
+  if (Array.isArray(message)) return message[0] || fallback;
+  return message || fallback;
+}
 
 export function ProfilePage() {
-  const { user } = useAuth();
+  const { user, setCurrentUser } = useAuth();
+  const toast = useToast();
+  const [profileForm, setProfileForm] = useState({ name: '', email: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    setProfileForm({ name: user.name, email: user.email });
+  }, [user]);
+
+  async function submitProfile(event: FormEvent) {
+    event.preventDefault();
+    setProfileError('');
+    setProfileBusy(true);
+
+    try {
+      const updated = await profileApi.update(profileForm);
+      setCurrentUser(updated);
+      toast('Datos personales actualizados');
+    } catch (error) {
+      setProfileError(getApiError(error, 'No se pudieron actualizar tus datos'));
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function submitPassword(event: FormEvent) {
+    event.preventDefault();
+    setPasswordError('');
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('La confirmacion no coincide con la nueva contrasena');
+      return;
+    }
+
+    setPasswordBusy(true);
+    try {
+      await profileApi.changePassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      toast('Contrasena actualizada');
+    } catch (error) {
+      setPasswordError(getApiError(error, 'No se pudo cambiar la contrasena'));
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
   return (
-    <section className="space-y-5">
+    <section className="space-y-6">
       <div>
-        <h1 className="text-2xl font-black text-ink">Perfil</h1>
-        <p className="text-sm text-slate-500">Sesion y configuracion basica.</p>
+        <h1 className="text-2xl font-extrabold tracking-tight">Perfil</h1>
+        <p className="text-sm text-mute">Administra tus datos personales y la seguridad de tu cuenta.</p>
       </div>
-      <div className="panel max-w-2xl">
+
+      <Card className="p-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-md bg-mint text-white">
-            <ShieldCheck />
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-soft text-brand-dark">
+            <ShieldCheck className="h-6 w-6" />
           </div>
-          <div>
-            <p className="font-black text-ink">{user?.name}</p>
-            <p className="text-sm text-slate-500">{user?.email}</p>
-          </div>
-        </div>
-        <div className="mt-6 grid gap-3 text-sm md:grid-cols-2">
-          <div className="rounded-md bg-slate-50 p-3">
-            <p className="font-semibold">Aislamiento de datos</p>
-            <p className="mt-1 text-slate-500">Todas las consultas usan el usuario autenticado.</p>
-          </div>
-          <div className="rounded-md bg-slate-50 p-3">
-            <p className="font-semibold">Sesion segura</p>
-            <p className="mt-1 text-slate-500">Access token corto y refresh token en cookie httpOnly.</p>
+          <div className="min-w-0">
+            <p className="truncate font-bold text-ink">{user?.name}</p>
+            <p className="truncate text-sm text-mute">{user?.email}</p>
           </div>
         </div>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <div className="mb-5 flex items-center gap-2">
+            <UserRound className="h-5 w-5 text-brand" />
+            <div>
+              <h2 className="text-sm font-bold">Datos personales</h2>
+              <p className="text-xs text-mute">Estos datos se reflejan en la sesion y sidebar.</p>
+            </div>
+          </div>
+
+          <form onSubmit={submitProfile} className="space-y-4">
+            <Field label="Nombre">
+              <Input
+                required
+                minLength={2}
+                maxLength={100}
+                autoComplete="name"
+                value={profileForm.name}
+                onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })}
+              />
+            </Field>
+            <Field label="Correo electronico">
+              <Input
+                required
+                type="email"
+                autoComplete="email"
+                value={profileForm.email}
+                onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })}
+              />
+            </Field>
+
+            {profileError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{profileError}</p>}
+
+            <Button type="submit" disabled={profileBusy}>
+              <Save className="h-4 w-4" /> {profileBusy ? 'Guardando...' : 'Guardar cambios'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-5 flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-gold" />
+            <div>
+              <h2 className="text-sm font-bold">Cambiar contrasena</h2>
+              <p className="text-xs text-mute">Debes confirmar tu contrasena actual.</p>
+            </div>
+          </div>
+
+          <form onSubmit={submitPassword} className="space-y-4">
+            <Field label="Contrasena actual">
+              <Input
+                required
+                type="password"
+                minLength={8}
+                maxLength={128}
+                autoComplete="current-password"
+                value={passwordForm.currentPassword}
+                onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })}
+              />
+            </Field>
+            <Field label="Nueva contrasena" hint="Minimo 8 caracteres">
+              <Input
+                required
+                type="password"
+                minLength={8}
+                maxLength={128}
+                autoComplete="new-password"
+                value={passwordForm.newPassword}
+                onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })}
+              />
+            </Field>
+            <Field label="Confirmar nueva contrasena">
+              <Input
+                required
+                type="password"
+                minLength={8}
+                maxLength={128}
+                autoComplete="new-password"
+                value={passwordForm.confirmPassword}
+                onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })}
+              />
+            </Field>
+
+            {passwordError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{passwordError}</p>}
+
+            <Button type="submit" disabled={passwordBusy}>
+              <KeyRound className="h-4 w-4" /> {passwordBusy ? 'Actualizando...' : 'Cambiar contrasena'}
+            </Button>
+          </form>
+        </Card>
       </div>
     </section>
   );

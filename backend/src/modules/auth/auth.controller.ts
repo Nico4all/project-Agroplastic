@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ChangePasswordDto } from '../users/dto/change-password.dto';
+import { UpdateProfileDto } from '../users/dto/update-profile.dto';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -55,6 +57,19 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: { userId: string }) {
     return this.users.me(user.userId);
+  }
+
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  updateProfile(@CurrentUser() user: { userId: string }, @Body() dto: UpdateProfileDto) {
+    return this.users.updateProfile(user.userId, dto);
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  changePassword(@CurrentUser() user: { userId: string }, @Body() dto: ChangePasswordDto) {
+    return this.users.changePassword(user.userId, dto);
   }
 
   private setRefreshCookie(res: Response, token: string) {

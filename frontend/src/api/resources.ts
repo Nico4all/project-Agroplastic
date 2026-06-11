@@ -1,6 +1,11 @@
 import { Account, Category, Loan, LoanPayment, Transaction, Transfer } from '../types';
 import { api } from './client';
 
+export const profileApi = {
+  update: async (payload: { name: string; email: string }) => (await api.patch('/auth/profile', payload)).data,
+  changePassword: async (payload: { currentPassword: string; newPassword: string }) => (await api.patch('/auth/password', payload)).data,
+};
+
 export const accountsApi = {
   list: async () => (await api.get<Account[]>('/accounts')).data,
   create: async (payload: Partial<Account>) => (await api.post<Account>('/accounts', payload)).data,
