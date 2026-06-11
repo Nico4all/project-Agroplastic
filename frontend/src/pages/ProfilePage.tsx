@@ -15,6 +15,8 @@ export function ProfilePage() {
   const toast = useToast();
   const [profileForm, setProfileForm] = useState({ name: '', email: '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordCode, setPasswordCode] = useState('');
+  const [passwordCodeSent, setPasswordCodeSent] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [profileError, setProfileError] = useState('');
@@ -56,10 +58,28 @@ export function ProfilePage() {
         currentPassword: passwordForm.currentPassword,
         newPassword: passwordForm.newPassword,
       });
-      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      toast('Contrasena actualizada');
+      setPasswordCodeSent(true);
+      toast('Te enviamos un codigo para confirmar el cambio');
     } catch (error) {
       setPasswordError(getApiError(error, 'No se pudo cambiar la contrasena'));
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
+  async function confirmPasswordCode(event: FormEvent) {
+    event.preventDefault();
+    setPasswordError('');
+    setPasswordBusy(true);
+
+    try {
+      await profileApi.confirmPasswordChange({ code: passwordCode });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordCode('');
+      setPasswordCodeSent(false);
+      toast('Contrasena actualizada');
+    } catch (error) {
+      setPasswordError(getApiError(error, 'Codigo invalido o expirado'));
     } finally {
       setPasswordBusy(false);
     }
@@ -128,51 +148,88 @@ export function ProfilePage() {
             <KeyRound className="h-5 w-5 text-gold" />
             <div>
               <h2 className="text-sm font-bold">Cambiar contrasena</h2>
-              <p className="text-xs text-mute">Debes confirmar tu contrasena actual.</p>
+              <p className="text-xs text-mute">Debes confirmar tu contrasena actual y luego el codigo enviado a tu correo.</p>
             </div>
           </div>
 
-          <form onSubmit={submitPassword} className="space-y-4">
-            <Field label="Contrasena actual">
-              <Input
-                required
-                type="password"
-                minLength={8}
-                maxLength={128}
-                autoComplete="current-password"
-                value={passwordForm.currentPassword}
-                onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })}
-              />
-            </Field>
-            <Field label="Nueva contrasena" hint="Minimo 8 caracteres">
-              <Input
-                required
-                type="password"
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-                value={passwordForm.newPassword}
-                onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })}
-              />
-            </Field>
-            <Field label="Confirmar nueva contrasena">
-              <Input
-                required
-                type="password"
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-                value={passwordForm.confirmPassword}
-                onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })}
-              />
-            </Field>
+          {!passwordCodeSent ? (
+            <form onSubmit={submitPassword} className="space-y-4">
+              <Field label="Contrasena actual">
+                <Input
+                  required
+                  type="password"
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="current-password"
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })}
+                />
+              </Field>
+              <Field label="Nueva contrasena" hint="Minimo 8 caracteres">
+                <Input
+                  required
+                  type="password"
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })}
+                />
+              </Field>
+              <Field label="Confirmar nueva contrasena">
+                <Input
+                  required
+                  type="password"
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })}
+                />
+              </Field>
 
-            {passwordError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{passwordError}</p>}
+              {passwordError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{passwordError}</p>}
 
-            <Button type="submit" disabled={passwordBusy}>
-              <KeyRound className="h-4 w-4" /> {passwordBusy ? 'Actualizando...' : 'Cambiar contrasena'}
-            </Button>
-          </form>
+              <Button type="submit" disabled={passwordBusy}>
+                <KeyRound className="h-4 w-4" /> {passwordBusy ? 'Enviando codigo...' : 'Enviar codigo'}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={confirmPasswordCode} className="space-y-4">
+              <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm font-medium text-brand-dark">
+                Enviamos un codigo a {user?.email}. Vence en 10 minutos.
+              </p>
+              <Field label="Codigo">
+                <Input
+                  required
+                  minLength={6}
+                  maxLength={6}
+                  inputMode="numeric"
+                  className="text-center text-lg tracking-[0.45em]"
+                  value={passwordCode}
+                  onChange={(event) => setPasswordCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                />
+              </Field>
+
+              {passwordError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{passwordError}</p>}
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={passwordBusy}>
+                  <KeyRound className="h-4 w-4" /> {passwordBusy ? 'Confirmando...' : 'Confirmar cambio'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setPasswordCodeSent(false);
+                    setPasswordCode('');
+                    setPasswordError('');
+                  }}
+                >
+                  Solicitar otro codigo
+                </Button>
+              </div>
+            </form>
+          )}
         </Card>
       </div>
     </section>

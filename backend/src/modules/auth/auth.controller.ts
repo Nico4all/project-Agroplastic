@@ -7,6 +7,7 @@ import { ChangePasswordDto } from '../users/dto/change-password.dto';
 import { UpdateProfileDto } from '../users/dto/update-profile.dto';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { ConfirmPasswordChangeDto, EmailDto, ResetPasswordDto, VerifyEmailCodeDto } from './dto/email-code.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -23,18 +24,29 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
-    const session = await this.auth.register(dto);
-    this.setRefreshCookie(res, session.refreshToken);
-    return { accessToken: session.accessToken, user: session.user };
+    const result = await this.auth.register(dto);
+    return this.withOptionalSessionCookie(res, result);
   }
 
   @Post('login')
   @HttpCode(200)
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const session = await this.auth.login(dto);
-    this.setRefreshCookie(res, session.refreshToken);
-    return { accessToken: session.accessToken, user: session.user };
+    const result = await this.auth.login(dto);
+    return this.withOptionalSessionCookie(res, result);
+  }
+
+  @Post('verify-registration')
+  @HttpCode(200)
+  async verifyRegistration(@Body() dto: VerifyEmailCodeDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.verifyRegistration(dto);
+    return this.withOptionalSessionCookie(res, result);
+  }
+
+  @Post('resend-registration-code')
+  @HttpCode(200)
+  resendRegistrationCode(@Body() dto: EmailDto) {
+    return this.auth.resendRegistrationCode(dto);
   }
 
   @Post('refresh')
@@ -69,7 +81,26 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)
   changePassword(@CurrentUser() user: { userId: string }, @Body() dto: ChangePasswordDto) {
-    return this.users.changePassword(user.userId, dto);
+    return this.auth.requestPasswordChange(user.userId, dto);
+  }
+
+  @Post('password/confirm')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  confirmPasswordChange(@CurrentUser() user: { userId: string }, @Body() dto: ConfirmPasswordChangeDto) {
+    return this.auth.confirmPasswordChange(user.userId, dto.code);
+  }
+
+  @Post('password/forgot')
+  @HttpCode(200)
+  forgotPassword(@Body() dto: EmailDto) {
+    return this.auth.requestPasswordReset(dto);
+  }
+
+  @Post('password/reset')
+  @HttpCode(200)
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto);
   }
 
   private setRefreshCookie(res: Response, token: string) {
@@ -85,5 +116,11 @@ export class AuthController {
       maxAge: days * 24 * 60 * 60 * 1000,
       path: '/',
     });
+  }
+
+  private withOptionalSessionCookie(res: Response, result: any) {
+    if (!result.refreshToken) return result;
+    this.setRefreshCookie(res, result.refreshToken);
+    return { accessToken: result.accessToken, user: result.user };
   }
 }

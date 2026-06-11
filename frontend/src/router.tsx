@@ -14,6 +14,7 @@ import { TransfersPage } from './pages/TransfersPage';
 export const router = createBrowserRouter([
   { path: '/login', element: <AuthPage mode="login" /> },
   { path: '/register', element: <AuthPage mode="register" /> },
+  { path: '/forgot-password', element: <AuthPage mode="forgot" /> },
   {
     path: '/',
     element: (

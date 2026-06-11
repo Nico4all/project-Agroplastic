@@ -36,11 +36,18 @@ enum LoanStatus {
   PAID
 }
 
+enum EmailCodePurpose {
+  REGISTER
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+}
+
 model User {
   id           String         @id @default(uuid())
   name         String
   email        String         @unique
   passwordHash String         @map("password_hash")
+  emailVerifiedAt DateTime?   @map("email_verified_at")
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
   accounts     Account[]
@@ -50,8 +57,30 @@ model User {
   loans         Loan[]
   loanPayments  LoanPayment[]
   refreshTokens RefreshToken[]
+  emailCodes    EmailVerificationCode[]
 
   @@map("users")
+}
+
+model EmailVerificationCode {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  email           String
+  purpose         EmailCodePurpose
+  codeHash        String           @map("code_hash") @db.Text
+  newPasswordHash String?          @map("new_password_hash") @db.Text
+  attempts        Int              @default(0)
+  expiresAt       DateTime         @map("expires_at")
+  usedAt          DateTime?        @map("used_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([email])
+  @@index([purpose])
+  @@index([expiresAt])
+  @@index([userId, purpose, usedAt])
+  @@map("email_verification_codes")
 }
 
 model Account {

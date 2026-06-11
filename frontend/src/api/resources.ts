@@ -4,6 +4,12 @@ import { api } from './client';
 export const profileApi = {
   update: async (payload: { name: string; email: string }) => (await api.patch('/auth/profile', payload)).data,
   changePassword: async (payload: { currentPassword: string; newPassword: string }) => (await api.patch('/auth/password', payload)).data,
+  confirmPasswordChange: async (payload: { code: string }) => (await api.post('/auth/password/confirm', payload)).data,
+};
+
+export const passwordRecoveryApi = {
+  requestCode: async (payload: { email: string }) => (await api.post('/auth/password/forgot', payload)).data,
+  reset: async (payload: { email: string; code: string; newPassword: string }) => (await api.post('/auth/password/reset', payload)).data,
 };
 
 export const accountsApi = {
