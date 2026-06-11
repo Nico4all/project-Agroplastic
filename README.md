@@ -91,3 +91,10 @@ npm run prisma:migrate
 3. Crea categorias de ingreso y gasto.
 4. Registra ingresos, gastos y transferencias.
 5. Revisa dashboard, historicos y exportacion CSV.
+
+
+
+## Montaje en docker 
+
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d

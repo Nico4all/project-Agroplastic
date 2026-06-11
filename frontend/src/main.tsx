@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './state/AuthContext';
+import { ToastProvider } from './ui/components';
 import './index.css';
 import './pwa';
 import { router } from './router';
@@ -13,7 +14,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RouterProvider router={router} />
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>,

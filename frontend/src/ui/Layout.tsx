@@ -1,75 +1,128 @@
-import { BarChart3, CreditCard, FolderTree, HandCoins, History, LogOut, Repeat2, Settings, WalletCards } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
+import {
+  ArrowLeftRight,
+  BarChart3,
+  CreditCard,
+  FolderTree,
+  HandCoins,
+  History,
+  LogOut,
+  Menu,
+  Settings,
+  WalletCards,
+  X,
+} from 'lucide-react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { useAuth } from '../state/AuthContext';
 
 const nav = [
-  { to: '/', label: 'Dashboard', icon: BarChart3 },
+  { to: '/', label: 'Dashboard', icon: BarChart3, end: true },
   { to: '/accounts', label: 'Cuentas', icon: WalletCards },
   { to: '/categories', label: 'Categorias', icon: FolderTree },
   { to: '/transactions', label: 'Movimientos', icon: CreditCard },
-  { to: '/transfers', label: 'Transferencias', icon: Repeat2 },
+  { to: '/transfers', label: 'Transferencias', icon: ArrowLeftRight },
   { to: '/loans', label: 'Prestamos', icon: HandCoins },
   { to: '/history', label: 'Historicos', icon: History },
   { to: '/profile', label: 'Perfil', icon: Settings },
 ];
 
+function Brand() {
+  return (
+    <div className="flex items-center gap-3 px-2">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-card">
+        <img src={`${import.meta.env.BASE_URL}brand/caudalia-icon.png`} alt="Caudalia" className="h-10 w-10 object-contain" />
+      </div>
+      <div className="leading-tight">
+        <p className="text-base font-extrabold tracking-tight text-white">Caudalia</p>
+        <p className="text-[11px] text-white/50">Finanzas personales</p>
+      </div>
+    </div>
+  );
+}
+
+function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <nav className="mt-8 flex flex-1 flex-col gap-1">
+      {nav.map(({ to, label, icon: Icon, end }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={end}
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              isActive ? 'bg-white/10 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white'
+            }`
+          }
+        >
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+          {label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 export function Layout() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  const initials = user?.name?.slice(0, 2).toUpperCase() || 'CA';
+  const sidebarFooter = (
+    <div className="border-t border-white/10 pt-3">
+      <div className="flex items-center gap-3 px-2 py-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/20 text-xs font-bold uppercase text-gold">
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-sm font-semibold text-white">{user?.name}</p>
+          <p className="truncate text-[11px] text-white/50">{user?.email}</p>
+        </div>
+      </div>
+      <button onClick={handleLogout} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-white/65 transition hover:bg-white/10 hover:text-white">
+        <LogOut className="h-4 w-4" /> Salir
+      </button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-paper">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 lg:flex">
-        <div className="mb-8">
-          <img src={`${import.meta.env.BASE_URL}brand/caudalia-horizontal.png`} alt="Caudalia" className="h-12 w-auto object-contain" />
-        </div>
-        <nav className="space-y-1">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold ${isActive ? 'bg-ink text-white' : 'text-slate-600 hover:bg-slate-100'}`
-                }
-              >
-                <Icon size={18} />
-                {item.label}
-              </NavLink>
-            );
-          })}
-        </nav>
-        <div className="mt-auto border-t border-slate-200 pt-4">
-          <div className="mb-3 rounded-md bg-slate-50 p-3">
-            <p className="truncate text-sm font-bold text-ink">{user?.name}</p>
-            <p className="truncate text-xs text-slate-500">{user?.email}</p>
-          </div>
-          <button onClick={logout} className="btn-soft w-full">
-            <LogOut size={18} /> Salir
-          </button>
-        </div>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-ink px-4 py-6 lg:flex">
+        <Brand />
+        <NavItems />
+        {sidebarFooter}
       </aside>
 
-      <main className="lg:pl-64">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 lg:hidden">
-          <div className="flex items-center justify-between">
-            <img src={`${import.meta.env.BASE_URL}brand/caudalia-horizontal.png`} alt="Caudalia" className="h-9 w-auto object-contain" />
-            <button onClick={logout} className="btn-soft px-2" title="Salir">
-              <LogOut size={18} />
-            </button>
+      <header className="sticky top-0 z-30 flex items-center justify-between bg-ink px-4 py-3 lg:hidden">
+        <Brand />
+        <button onClick={() => setDrawerOpen(true)} aria-label="Abrir menu" className="rounded-lg p-2 text-white/80 hover:bg-white/10">
+          <Menu className="h-5 w-5" />
+        </button>
+      </header>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 bg-ink/50 lg:hidden" onMouseDown={(event) => event.target === event.currentTarget && setDrawerOpen(false)}>
+          <div className="flex h-full w-72 flex-col bg-ink px-4 py-6">
+            <div className="flex items-center justify-between">
+              <Brand />
+              <button onClick={() => setDrawerOpen(false)} aria-label="Cerrar menu" className="rounded-lg p-2 text-white/70 hover:bg-white/10">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <NavItems onNavigate={() => setDrawerOpen(false)} />
+            {sidebarFooter}
           </div>
-          <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
-            {nav.map((item) => {
-              const Icon = item.icon;
-              return (
-                <NavLink key={item.to} to={item.to} end={item.to === '/'} className="btn-soft shrink-0 px-2" title={item.label}>
-                  <Icon size={17} />
-                </NavLink>
-              );
-            })}
-          </nav>
-        </header>
-        <div className="mx-auto max-w-7xl px-4 py-6">
+        </div>
+      )}
+
+      <main className="px-4 py-6 sm:px-6 lg:ml-64 lg:px-10 lg:py-8">
+        <div className="mx-auto max-w-6xl">
           <Outlet />
         </div>
       </main>

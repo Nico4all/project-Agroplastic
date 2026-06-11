@@ -24,7 +24,7 @@ const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
       serveRoot: normalizedBasePath,
-      exclude: [`${normalizedBasePath}/api*`],
+      exclude: [`${normalizedBasePath}/api{/*path}`],
     }),
     PrismaModule,
     AuthModule,
