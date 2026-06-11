@@ -1,0 +1,48 @@
+{
+  "name": "Caudalia",
+  "short_name": "Caudalia",
+  "description": "Gestion financiera personal multiusuario.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7fb",
+  "theme_color": "#16213a",
+  "categories": ["finance", "productivity"],
+  "lang": "es-CO",
+  "icons": [
+    {
+      "src": "/brand/caudalia-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/brand/caudalia-icon.png",
+          "sizes": "1024x1024",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Movimientos",
+      "short_name": "Movimientos",
+      "url": "/transactions",
+      "icons": [
+        {
+          "src": "/brand/caudalia-icon.png",
+          "sizes": "1024x1024",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

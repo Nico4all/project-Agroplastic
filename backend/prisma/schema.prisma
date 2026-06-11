@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  CASH
+  BANK
+  SAVINGS
+  CREDIT_CARD
+  DIGITAL_WALLET
+  OTHER
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum LoanType {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum LoanStatus {
+  OPEN
+  PAID
+}
+
+model User {
+  id           String         @id @default(uuid())
+  name         String
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  accounts     Account[]
+  categories   Category[]
+  transactions Transaction[]
+  transfers    Transfer[]
+  loans         Loan[]
+  loanPayments  LoanPayment[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Account {
+  id             String        @id @default(uuid())
+  userId         String        @map("user_id")
+  name           String
+  type           AccountType
+  initialBalance Decimal       @default(0) @map("initial_balance") @db.Decimal(14, 2)
+  currentBalance Decimal       @default(0) @map("current_balance") @db.Decimal(14, 2)
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
+  outgoingTransfers Transfer[] @relation("OutgoingTransfers")
+  incomingTransfers Transfer[] @relation("IncomingTransfers")
+  loans          Loan[]
+  loanPayments   LoanPayment[]
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@map("accounts")
+}
+
+model Category {
+  id           String          @id @default(uuid())
+  userId       String          @map("user_id")
+  name         String
+  type         CategoryType
+  color        String?
+  icon         String?
+  isActive     Boolean         @default(true) @map("is_active")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([userId, type])
+  @@map("categories")
+}
+
+model Transaction {
+  id              String          @id @default(uuid())
+  userId          String          @map("user_id")
+  accountId       String          @map("account_id")
+  categoryId      String          @map("category_id")
+  type            TransactionType
+  amount          Decimal         @db.Decimal(14, 2)
+  description     String?
+  transactionDate DateTime        @map("transaction_date")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account         Account         @relation(fields: [accountId], references: [id])
+  category        Category        @relation(fields: [categoryId], references: [id])
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([type])
+  @@index([transactionDate])
+  @@index([userId, transactionDate])
+  @@map("transactions")
+}
+
+model Transfer {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  fromAccountId String   @map("from_account_id")
+  toAccountId   String   @map("to_account_id")
+  amount        Decimal  @db.Decimal(14, 2)
+  description   String?
+  transferDate  DateTime @map("transfer_date")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount   Account  @relation("OutgoingTransfers", fields: [fromAccountId], references: [id])
+  toAccount     Account  @relation("IncomingTransfers", fields: [toAccountId], references: [id])
+
+  @@index([userId])
+  @@index([fromAccountId])
+  @@index([toAccountId])
+  @@index([transferDate])
+  @@index([userId, transferDate])
+  @@map("transfers")
+}
+
+model Loan {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  accountId       String        @map("account_id")
+  personName      String        @map("person_name")
+  type            LoanType
+  principalAmount Decimal       @map("principal_amount") @db.Decimal(14, 2)
+  remainingAmount Decimal       @map("remaining_amount") @db.Decimal(14, 2)
+  description     String?
+  loanDate        DateTime      @map("loan_date")
+  status          LoanStatus    @default(OPEN)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account         Account       @relation(fields: [accountId], references: [id])
+  payments        LoanPayment[]
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
+  @@index([loanDate])
+  @@index([userId, type, status])
+  @@map("loans")
+}
+
+model LoanPayment {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  loanId      String   @map("loan_id")
+  accountId   String   @map("account_id")
+  amount      Decimal  @db.Decimal(14, 2)
+  description String?
+  paymentDate DateTime @map("payment_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  account     Account  @relation(fields: [accountId], references: [id])
+
+  @@index([userId])
+  @@index([loanId])
+  @@index([accountId])
+  @@index([paymentDate])
+  @@map("loan_payments")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash") @db.Text
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}

@@ -1,0 +1,16 @@
+node_modules/
+backend/dist/
+backend/node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# Ignore environment variable files
+.env
+backend/.env
+backend/.env.expample
+frontend/.env
+frontend/.env.expample
+
+.env.production
+.env.example
+.env.production.example
