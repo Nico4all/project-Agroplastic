@@ -5,7 +5,8 @@ services:
       dockerfile: Dockerfile
       target: production
       args:
-        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/caudalia/}
+        VITE_API_URL: ${VITE_API_URL:-/caudalia/api}
     image: caudalia-app:prod
     container_name: caudalia-app
     restart: unless-stopped
@@ -14,6 +15,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_PORT:-3001}
+      APP_BASE_PATH: ${APP_BASE_PATH:-/caudalia}
       DATABASE_URL: ${DATABASE_URL:-mysql://root:docker@database:3306/financial_project}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
     ports:
@@ -21,7 +23,7 @@ services:
     networks:
       - apps_mind_net
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"const p=process.env.PORT||3001; fetch('http://127.0.0.1:'+p+'/api/auth/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"const p=process.env.PORT||3001; const b=process.env.APP_BASE_PATH||'/caudalia'; fetch('http://127.0.0.1:'+p+b+'/api/auth/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s
       timeout: 5s
       retries: 5

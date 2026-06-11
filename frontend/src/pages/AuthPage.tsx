@@ -31,7 +31,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper px-4">
       <form onSubmit={submit} className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-soft">
-        <img src="/brand/caudalia-vertical.png" alt="Caudalia" className="mx-auto mb-5 h-36 w-auto object-contain" />
+        <img src={`${import.meta.env.BASE_URL}brand/caudalia-vertical.png`} alt="Caudalia" className="mx-auto mb-5 h-36 w-auto object-contain" />
         <p className="text-2xl font-black text-ink">{mode === 'register' ? 'Crear cuenta' : 'Iniciar sesion'}</p>
         <p className="mt-1 text-sm text-slate-500">Gestion financiera personal multiusuario.</p>
         <div className="mt-6 space-y-4">

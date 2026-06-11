@@ -47,8 +47,8 @@ npm run db:migrate
 npm run dev
 ```
 
-- Backend: http://localhost:3000/api
-- Frontend: http://localhost:5173
+- Backend: http://localhost:3001/caudalia/api
+- Frontend dev: http://localhost:5174/caudalia/
 
 ## Produccion monolitica
 
@@ -57,7 +57,7 @@ npm run build:monolith
 npm run start:prod
 ```
 
-NestJS servira el frontend compilado desde `backend/public`.
+NestJS servira el frontend compilado desde `backend/public` bajo `http://localhost:3001/caudalia/`.
 
 ## Produccion con Docker
 
@@ -70,6 +70,12 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 La imagen final solo instala dependencias productivas del backend. El frontend se compila en una etapa intermedia y queda servido por NestJS.
+
+La URL publicada por el contenedor queda bajo subruta:
+
+```bash
+http://localhost:3001/caudalia/
+```
 
 Antes de levantar una version nueva con migraciones pendientes, ejecuta la migracion desde tu entorno de despliegue:
 

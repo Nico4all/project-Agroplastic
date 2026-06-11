@@ -19,7 +19,7 @@ export function Layout() {
     <div className="min-h-screen bg-paper">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 lg:flex">
         <div className="mb-8">
-          <img src="/brand/caudalia-horizontal.png" alt="Caudalia" className="h-12 w-auto object-contain" />
+          <img src={`${import.meta.env.BASE_URL}brand/caudalia-horizontal.png`} alt="Caudalia" className="h-12 w-auto object-contain" />
         </div>
         <nav className="space-y-1">
           {nav.map((item) => {
@@ -53,7 +53,7 @@ export function Layout() {
       <main className="lg:pl-64">
         <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 lg:hidden">
           <div className="flex items-center justify-between">
-            <img src="/brand/caudalia-horizontal.png" alt="Caudalia" className="h-9 w-auto object-contain" />
+            <img src={`${import.meta.env.BASE_URL}brand/caudalia-horizontal.png`} alt="Caudalia" className="h-9 w-auto object-contain" />
             <button onClick={logout} className="btn-soft px-2" title="Salir">
               <LogOut size={18} />
             </button>

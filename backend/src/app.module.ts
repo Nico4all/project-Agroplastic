@@ -14,13 +14,17 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
 import { UsersModule } from './modules/users/users.module';
 
+const appBasePath = process.env.APP_BASE_PATH || '/caudalia';
+const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
-      exclude: ['/api*'],
+      serveRoot: normalizedBasePath,
+      exclude: [`${normalizedBasePath}/api*`],
     }),
     PrismaModule,
     AuthModule,

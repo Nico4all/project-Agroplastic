@@ -6,7 +6,9 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 FROM frontend-deps AS frontend-build
-ARG VITE_API_URL=/api
+ARG VITE_BASE_PATH=/caudalia/
+ARG VITE_API_URL=/caudalia/api
+ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 ENV VITE_API_URL=${VITE_API_URL}
 COPY frontend ./
 RUN npm run build

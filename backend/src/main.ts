@@ -8,8 +8,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
   const frontendUrl = config.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+  const appBasePath = config.get<string>('APP_BASE_PATH') || '/caudalia';
+  const normalizedBasePath = appBasePath.replace(/^\/+|\/+$/g, '');
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix(`${normalizedBasePath}/api`);
   app.use(cookieParser());
   app.enableCors({
     origin: frontendUrl,
