@@ -8,10 +8,10 @@ declare const process: {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    base: env.VITE_BASE_PATH || '/caudalia/',
+    base: env.VITE_BASE_PATH || '/caja-bodega/',
     plugins: [react()],
     server: {
-      port: 5174,
+      port: 3003,
     },
   };
 });

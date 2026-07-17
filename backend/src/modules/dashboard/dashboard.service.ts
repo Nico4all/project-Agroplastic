@@ -1,263 +1,172 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, TransactionType } from '@prisma/client';
+import { Prisma, RecordStatus, User, UserRole } from '@prisma/client';
 import { decimalToNumber } from '../../common/helpers/money';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
-
-const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly users: UsersService,
+  ) {}
 
   async getDashboard(userId: string, query: DashboardQueryDto) {
+    const actor = await this.users.getActiveUser(userId);
     const range = this.resolveRange(query);
-    const transactionWhere = this.transactionWhere(userId, query, range);
+    const incomeWhere = this.incomeWhere(actor, query, range);
+    const expenseWhere = this.expenseWhere(actor, query, range);
+    const relevantUsers = await this.relevantUsers(actor, query);
 
-    const [accounts, monthTotals, recentTransactions, recentTransfers, monthlyFlow, expensesByCategory] =
-      await Promise.all([
-        this.prisma.account.findMany({ where: { userId, isActive: true }, orderBy: { name: 'asc' } }),
-        this.prisma.transaction.groupBy({ by: ['type'], where: transactionWhere, orderBy: { type: 'asc' }, _sum: { amount: true } }),
-        this.prisma.transaction.findMany({
-          where: { userId },
-          include: { account: true, category: true },
-          orderBy: { transactionDate: 'desc' },
-          take: 8,
-        }),
-        this.prisma.transfer.findMany({
-          where: { userId },
-          include: { fromAccount: true, toAccount: true },
-          orderBy: { transferDate: 'desc' },
-          take: 8,
-        }),
-        this.getMonthlyFlow(userId, query, range),
-        this.getExpensesByCategory(transactionWhere),
-      ]);
+    const [incomeSum, expenseSum, expensesByUser, recentExpensesByUser, recentIncomesByUser] = await Promise.all([
+      this.prisma.income.aggregate({ where: { ...incomeWhere, status: RecordStatus.ACTIVE }, _sum: { amount: true } }),
+      this.prisma.expense.aggregate({ where: { ...expenseWhere, status: RecordStatus.ACTIVE }, _sum: { amount: true } }),
+      this.getExpensesByUser(expenseWhere),
+      this.getRecentExpensesByUser(relevantUsers, expenseWhere),
+      this.getRecentIncomesByUser(relevantUsers, incomeWhere),
+    ]);
 
-    const income = decimalToNumber(monthTotals.find((row) => row.type === 'INCOME')?._sum?.amount);
-    const expense = decimalToNumber(monthTotals.find((row) => row.type === 'EXPENSE')?._sum?.amount);
-    const totalBalance = accounts.reduce((sum, account) => sum + decimalToNumber(account.currentBalance), 0);
+    const income = decimalToNumber(incomeSum._sum.amount);
+    const expense = decimalToNumber(expenseSum._sum.amount);
 
     return {
       summary: {
-        totalBalance,
         income,
         expense,
-        netFlow: income - expense,
+        net: income - expense,
       },
-      accounts: accounts.map((account) => ({
-        id: account.id,
-        name: account.name,
-        type: account.type,
-        currentBalance: decimalToNumber(account.currentBalance),
-      })),
-      charts: {
-        monthlyFlow,
-        expensesByCategory,
-        balanceEvolution: await this.getBalanceEvolution(userId, query),
-        accountDistribution: accounts.map((account) => ({
-          name: account.name,
-          value: decimalToNumber(account.currentBalance),
-        })),
+      expensesByUser,
+      recentExpensesByUser,
+      recentIncomesByUser,
+      filters: {
+        fromDate: range.from.toISOString(),
+        toDate: range.to.toISOString(),
       },
-      recentMovements: [...recentTransactions.map(this.transactionItem), ...recentTransfers.map(this.transferItem)]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 10),
     };
+  }
+
+  private async getExpensesByUser(where: Prisma.ExpenseWhereInput) {
+    const rows = await this.prisma.expense.groupBy({
+      by: ['userId'],
+      where: { ...where, status: RecordStatus.ACTIVE },
+      _sum: { amount: true },
+      orderBy: { userId: 'asc' },
+    });
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: rows.map((row) => row.userId) } },
+      select: { id: true, name: true, username: true, city: true },
+    });
+    return rows
+      .map((row) => {
+        const user = users.find((item) => item.id === row.userId);
+        return {
+          userId: row.userId,
+          name: user?.name || 'Usuario',
+          username: user?.username || '',
+          city: user?.city || '',
+          value: decimalToNumber(row._sum.amount),
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+  }
+
+  private async getRecentExpensesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'city'>>, where: Prisma.ExpenseWhereInput) {
+    const groups = await Promise.all(
+      users.map(async (user) => {
+        const items = await this.prisma.expense.findMany({
+          where: { ...where, userId: user.id },
+          include: { category: true },
+          orderBy: { expenseDate: 'desc' },
+          take: 5,
+        });
+        return {
+          user,
+          items: items.map((item) => ({
+            id: item.id,
+            date: item.expenseDate,
+            city: item.city,
+            category: item.category.name,
+            paidTo: item.paidTo,
+            status: item.status,
+            amount: decimalToNumber(item.amount),
+          })),
+        };
+      }),
+    );
+    return groups.filter((group) => group.items.length);
+  }
+
+  private async getRecentIncomesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'city'>>, where: Prisma.IncomeWhereInput) {
+    const groups = await Promise.all(
+      users.map(async (user) => {
+        const items = await this.prisma.income.findMany({
+          where: { ...where, userId: user.id },
+          orderBy: { incomeDate: 'desc' },
+          take: 5,
+        });
+        return {
+          user,
+          items: items.map((item) => ({
+            id: item.id,
+            date: item.incomeDate,
+            city: item.city,
+            clientName: item.clientName,
+            clientDocument: item.clientDocument,
+            type: item.type,
+            paymentMethod: item.paymentMethod,
+            status: item.status,
+            amount: decimalToNumber(item.amount),
+          })),
+        };
+      }),
+    );
+    return groups.filter((group) => group.items.length);
+  }
+
+  private async relevantUsers(actor: User, query: DashboardQueryDto) {
+    if (actor.role !== UserRole.ADMIN) {
+      return [{ id: actor.id, name: actor.name, username: actor.username, city: actor.city }];
+    }
+    return this.prisma.user.findMany({
+      where: {
+        role: UserRole.BODEGA,
+        ...(query.userId ? { id: query.userId } : {}),
+        ...(query.city ? { city: query.city } : {}),
+      },
+      select: { id: true, name: true, username: true, city: true },
+      orderBy: { name: 'asc' },
+    });
   }
 
   private resolveRange(query: DashboardQueryDto) {
     const now = new Date();
     const from = query.fromDate ? new Date(query.fromDate) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const to = query.toDate ? new Date(query.toDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const to = query.toDate ? this.endOfDay(query.toDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
     return { from, to };
   }
 
-  private resolveChartRange(query: DashboardQueryDto) {
-    if (query.fromDate || query.toDate) return this.resolveRange(query);
-
-    const now = new Date();
+  private incomeWhere(actor: User, query: DashboardQueryDto, range: { from: Date; to: Date }): Prisma.IncomeWhereInput {
     return {
-      from: new Date(now.getFullYear(), now.getMonth() - 5, 1),
-      to: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+      incomeDate: { gte: range.from, lte: range.to },
+      ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }),
+      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(actor.role === UserRole.ADMIN && query.city ? { city: query.city } : {}),
     };
   }
 
-  private monthsBetween(from: Date, to: Date) {
-    const months: string[] = [];
-    const cursor = new Date(from.getFullYear(), from.getMonth(), 1);
-    const end = new Date(to.getFullYear(), to.getMonth(), 1);
-
-    while (cursor <= end && months.length < 60) {
-      months.push(monthKey(cursor));
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
-
-    return months;
-  }
-
-  private transactionWhere(userId: string, query: DashboardQueryDto, range: { from: Date; to: Date }): Prisma.TransactionWhereInput {
+  private expenseWhere(actor: User, query: DashboardQueryDto, range: { from: Date; to: Date }): Prisma.ExpenseWhereInput {
     return {
-      userId,
-      transactionDate: { gte: range.from, lte: range.to },
-      ...(query.accountId ? { accountId: query.accountId } : {}),
-      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      expenseDate: { gte: range.from, lte: range.to },
+      ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }),
+      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(actor.role === UserRole.ADMIN && query.city ? { city: query.city } : {}),
     };
   }
 
-  private async getMonthlyFlow(userId: string, query: DashboardQueryDto, range: { from: Date; to: Date }) {
-    const chartRange = query.fromDate || query.toDate ? range : this.resolveChartRange(query);
-
-    const rows = await this.prisma.transaction.findMany({
-      where: {
-        userId,
-        transactionDate: { gte: chartRange.from, lte: chartRange.to },
-        ...(query.accountId ? { accountId: query.accountId } : {}),
-        ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-      },
-      select: { type: true, amount: true, transactionDate: true },
-      orderBy: { transactionDate: 'asc' },
-    });
-
-    const buckets = new Map(
-      this.monthsBetween(chartRange.from, chartRange.to).map((month) => [month, { month, income: 0, expense: 0, net: 0 }]),
-    );
-
-    rows.forEach((row) => {
-      const month = monthKey(row.transactionDate);
-      const bucket = buckets.get(month);
-      if (!bucket) return;
-
-      const amount = decimalToNumber(row.amount);
-      if (row.type === TransactionType.INCOME) bucket.income += amount;
-      else bucket.expense += amount;
-      bucket.net = bucket.income - bucket.expense;
-      buckets.set(month, bucket);
-    });
-    return Array.from(buckets.values());
-  }
-
-  private async getExpensesByCategory(where: Prisma.TransactionWhereInput) {
-    const rows = await this.prisma.transaction.groupBy({
-      by: ['categoryId'],
-      where: { ...where, type: 'EXPENSE' },
-      orderBy: { categoryId: 'asc' },
-      _sum: { amount: true },
-    });
-    const categories = await this.prisma.category.findMany({
-      where: { id: { in: rows.map((row) => row.categoryId) } },
-    });
-    return rows.map((row) => {
-      const category = categories.find((item) => item.id === row.categoryId);
-      return {
-        categoryId: row.categoryId,
-        name: category?.name || 'Sin categoria',
-        color: category?.color || '#64748b',
-        value: decimalToNumber(row._sum.amount),
-      };
-    });
-  }
-
-  private async getBalanceEvolution(userId: string, query: DashboardQueryDto) {
-    const range = this.resolveChartRange(query);
-    const months = this.monthsBetween(range.from, range.to);
-
-    const [accounts, transactions, transfers] = await this.prisma.$transaction([
-      this.prisma.account.findMany({
-        where: { userId, ...(query.accountId ? { id: query.accountId } : {}) },
-        select: { id: true, initialBalance: true },
-      }),
-      this.prisma.transaction.findMany({
-        where: {
-          userId,
-          ...(query.accountId ? { accountId: query.accountId } : {}),
-          ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-          transactionDate: { lte: range.to },
-        },
-        select: { type: true, amount: true, transactionDate: true },
-        orderBy: { transactionDate: 'asc' },
-      }),
-      query.accountId && !query.categoryId
-        ? this.prisma.transfer.findMany({
-            where: {
-              userId,
-              transferDate: { lte: range.to },
-              OR: [{ fromAccountId: query.accountId }, { toAccountId: query.accountId }],
-            },
-            select: { amount: true, transferDate: true, fromAccountId: true, toAccountId: true },
-            orderBy: { transferDate: 'asc' },
-          })
-        : this.prisma.transfer.findMany({
-            where: { id: '__none__' },
-            select: { amount: true, transferDate: true, fromAccountId: true, toAccountId: true },
-          }),
-    ]);
-
-    let running = accounts.reduce((sum, account) => sum + decimalToNumber(account.initialBalance), 0);
-    const buckets = new Map(months.map((month) => [month, { transactionNet: 0, transferNet: 0 }]));
-
-    transactions.forEach((row) => {
-      const signedAmount = (row.type === TransactionType.INCOME ? 1 : -1) * decimalToNumber(row.amount);
-      if (row.transactionDate < range.from) {
-        running += signedAmount;
-        return;
-      }
-
-      const bucket = buckets.get(monthKey(row.transactionDate));
-      if (bucket) bucket.transactionNet += signedAmount;
-    });
-
-    transfers.forEach((row) => {
-      if (!query.accountId) return;
-      const sign = row.toAccountId === query.accountId ? 1 : row.fromAccountId === query.accountId ? -1 : 0;
-      const signedAmount = sign * decimalToNumber(row.amount);
-      if (row.transferDate < range.from) {
-        running += signedAmount;
-        return;
-      }
-
-      const bucket = buckets.get(monthKey(row.transferDate));
-      if (bucket) bucket.transferNet += signedAmount;
-    });
-
-    return months.map((month) => {
-      const bucket = buckets.get(month);
-      running += (bucket?.transactionNet || 0) + (bucket?.transferNet || 0);
-      return {
-        date: `${month}-01`,
-        label: `${MONTH_LABELS[Number(month.slice(5)) - 1]} ${month.slice(2, 4)}`,
-        balance: running,
-      };
-    });
-  }
-
-  private transactionItem(row: any) {
-    return {
-      id: row.id,
-      kind: 'TRANSACTION',
-      type: row.type,
-      amount: decimalToNumber(row.amount),
-      date: row.transactionDate,
-      description: row.description,
-      account: row.account?.name,
-      category: row.category?.name,
-    };
-  }
-
-  private transferItem(row: any) {
-    return {
-      id: row.id,
-      kind: 'TRANSFER',
-      type: 'TRANSFER',
-      amount: decimalToNumber(row.amount),
-      date: row.transferDate,
-      description: row.description,
-      account: `${row.fromAccount?.name} -> ${row.toAccount?.name}`,
-      category: 'Transferencia',
-    };
+  private endOfDay(value: string) {
+    const date = new Date(value);
+    date.setHours(23, 59, 59, 999);
+    return date;
   }
 }

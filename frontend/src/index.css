@@ -34,7 +34,7 @@
 
   .card,
   .panel {
-    @apply rounded-2xl border border-line bg-surface p-4 shadow-card;
+    @apply rounded-lg border border-line bg-surface p-4 shadow-card;
   }
 
   .money {

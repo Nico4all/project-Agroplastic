@@ -1,19 +1,19 @@
 {
-  "name": "Caudalia",
-  "short_name": "Caudalia",
-  "description": "Gestion financiera personal multiusuario.",
-  "id": "/caudalia/",
-  "start_url": "/caudalia/",
-  "scope": "/caudalia/",
+  "name": "Caja Bodega",
+  "short_name": "Caja Bodega",
+  "description": "Registro de ingresos, anticipos y egresos de bodega.",
+  "id": "/caja-bodega/",
+  "start_url": "/caja-bodega/",
+  "scope": "/caja-bodega/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f6f7fb",
-  "theme_color": "#16213a",
+  "background_color": "#F4F6F3",
+  "theme_color": "#16251E",
   "categories": ["finance", "productivity"],
   "lang": "es-CO",
   "icons": [
     {
-      "src": "/caudalia/brand/caudalia-icon.png",
+      "src": "/caja-bodega/brand/caudalia-icon.png",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any maskable"
@@ -21,24 +21,24 @@
   ],
   "shortcuts": [
     {
-      "name": "Dashboard",
-      "short_name": "Dashboard",
-      "url": "/caudalia/",
+      "name": "Panel",
+      "short_name": "Panel",
+      "url": "/caja-bodega/",
       "icons": [
         {
-          "src": "/caudalia/brand/caudalia-icon.png",
+          "src": "/caja-bodega/brand/caudalia-icon.png",
           "sizes": "1024x1024",
           "type": "image/png"
         }
       ]
     },
     {
-      "name": "Movimientos",
-      "short_name": "Movimientos",
-      "url": "/caudalia/transactions",
+      "name": "Ingresos",
+      "short_name": "Ingresos",
+      "url": "/caja-bodega/incomes",
       "icons": [
         {
-          "src": "/caudalia/brand/caudalia-icon.png",
+          "src": "/caja-bodega/brand/caudalia-icon.png",
           "sizes": "1024x1024",
           "type": "image/png"
         }

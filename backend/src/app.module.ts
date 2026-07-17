@@ -3,18 +3,16 @@ import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { join } from 'path';
-import { AccountsModule } from './modules/accounts/accounts.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { CategoriesModule } from './modules/categories/categories.module';
+import { ClientsModule } from './modules/clients/clients.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
-import { HistoryModule } from './modules/history/history.module';
-import { LoansModule } from './modules/loans/loans.module';
+import { ExpenseCategoriesModule } from './modules/expense-categories/expense-categories.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
+import { IncomesModule } from './modules/incomes/incomes.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
-import { TransactionsModule } from './modules/transactions/transactions.module';
-import { TransfersModule } from './modules/transfers/transfers.module';
 import { UsersModule } from './modules/users/users.module';
 
-const appBasePath = process.env.APP_BASE_PATH || '/caudalia';
+const appBasePath = process.env.APP_BASE_PATH || '/caja-bodega';
 const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
 
 @Module({
@@ -29,12 +27,10 @@ const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
     PrismaModule,
     AuthModule,
     UsersModule,
-    AccountsModule,
-    CategoriesModule,
-    TransactionsModule,
-    TransfersModule,
-    LoansModule,
-    HistoryModule,
+    ClientsModule,
+    ExpenseCategoriesModule,
+    IncomesModule,
+    ExpensesModule,
     DashboardModule,
   ],
 })

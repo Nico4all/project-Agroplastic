@@ -1,4 +1,17 @@
-import { Account, Category, Loan, LoanPayment, Transaction, Transfer } from '../types';
+import {
+  Account,
+  CashExpense,
+  CashIncome,
+  Category,
+  Client,
+  ExpenseCategory,
+  Loan,
+  LoanPayment,
+  PaginatedResult,
+  Transaction,
+  Transfer,
+  User,
+} from '../types';
 import { api } from './client';
 
 export const profileApi = {
@@ -57,4 +70,39 @@ export const loansApi = {
 export const historyApi = {
   list: async (params?: Record<string, unknown>) => (await api.get('/history', { params })).data,
   exportCsv: async (params?: Record<string, unknown>) => (await api.get('/history/export', { params, responseType: 'blob' })).data as Blob,
+};
+
+export const usersApi = {
+  list: async () => (await api.get<User[]>('/users')).data,
+  create: async (payload: { username: string; password: string; name: string; city?: string }) => (await api.post<User>('/users', payload)).data,
+};
+
+export const clientsApi = {
+  list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<Client>>('/clients', { params })).data,
+  create: async (payload: Partial<Client>) => (await api.post<Client>('/clients', payload)).data,
+  update: async (id: string, payload: Partial<Client>) => (await api.patch<Client>(`/clients/${id}`, payload)).data,
+};
+
+export const expenseCategoriesApi = {
+  list: async () => (await api.get<ExpenseCategory[]>('/expense-categories')).data,
+  create: async (payload: { name: string }) => (await api.post<ExpenseCategory>('/expense-categories', payload)).data,
+  update: async (id: string, payload: Partial<ExpenseCategory>) => (await api.patch<ExpenseCategory>(`/expense-categories/${id}`, payload)).data,
+};
+
+export const incomesApi = {
+  list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<CashIncome>>('/incomes', { params })).data,
+  create: async (payload: Partial<CashIncome>) => (await api.post<CashIncome>('/incomes', payload)).data,
+  void: async (id: string, payload: { reason?: string }) => (await api.patch<CashIncome>(`/incomes/${id}/void`, payload)).data,
+  exportExcel: async (params?: Record<string, unknown>) => (await api.get('/incomes/export/excel', { params, responseType: 'blob' })).data as Blob,
+  exportPdf: async (params?: Record<string, unknown>) => (await api.get('/incomes/export/pdf', { params, responseType: 'blob' })).data as Blob,
+  receiptPdf: async (id: string) => (await api.get(`/incomes/${id}/pdf`, { responseType: 'blob' })).data as Blob,
+};
+
+export const expensesApi = {
+  list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<CashExpense>>('/expenses', { params })).data,
+  create: async (payload: Partial<CashExpense>) => (await api.post<CashExpense>('/expenses', payload)).data,
+  void: async (id: string, payload: { reason?: string }) => (await api.patch<CashExpense>(`/expenses/${id}/void`, payload)).data,
+  exportExcel: async (params?: Record<string, unknown>) => (await api.get('/expenses/export/excel', { params, responseType: 'blob' })).data as Blob,
+  exportPdf: async (params?: Record<string, unknown>) => (await api.get('/expenses/export/pdf', { params, responseType: 'blob' })).data as Blob,
+  receiptPdf: async (id: string) => (await api.get(`/expenses/${id}/pdf`, { responseType: 'blob' })).data as Blob,
 };

@@ -1,46 +1,43 @@
 import {
-  ArrowLeftRight,
   BarChart3,
-  CreditCard,
   FolderTree,
   HandCoins,
-  History,
   LogOut,
   Menu,
-  Settings,
-  WalletCards,
+  ReceiptText,
+  Users,
+  UserSquare2,
   X,
 } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '../state/AuthContext';
-
-const nav = [
-  { to: '/', label: 'Dashboard', icon: BarChart3, end: true },
-  { to: '/accounts', label: 'Cuentas', icon: WalletCards },
-  { to: '/categories', label: 'Categorias', icon: FolderTree },
-  { to: '/transactions', label: 'Movimientos', icon: CreditCard },
-  { to: '/transfers', label: 'Transferencias', icon: ArrowLeftRight },
-  { to: '/loans', label: 'Prestamos', icon: HandCoins },
-  { to: '/history', label: 'Historicos', icon: History },
-  { to: '/profile', label: 'Perfil', icon: Settings },
-];
 
 function Brand() {
   return (
     <div className="flex items-center gap-3 px-2">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-card">
-        <img src={`${import.meta.env.BASE_URL}brand/caudalia-icon.png`} alt="Caudalia" className="h-10 w-10 object-contain" />
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white shadow-card">
+        <img src={`${import.meta.env.BASE_URL}brand/caudalia-icon.png`} alt="Caja Bodega" className="h-10 w-10 object-contain" />
       </div>
       <div className="leading-tight">
-        <p className="text-base font-extrabold tracking-tight text-white">Caudalia</p>
-        <p className="text-[11px] text-white/50">Finanzas personales</p>
+        <p className="text-base font-extrabold tracking-tight text-white">Caja Bodega</p>
+        <p className="text-[11px] text-white/50">Agroplastic</p>
       </div>
     </div>
   );
 }
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+  const { user } = useAuth();
+  const nav = useMemo(() => [
+    { to: '/', label: 'Panel', icon: BarChart3, end: true },
+    { to: '/incomes', label: 'Ingresos', icon: HandCoins },
+    { to: '/expenses', label: 'Egresos', icon: ReceiptText },
+    { to: '/clients', label: 'Clientes', icon: UserSquare2 },
+    { to: '/categories', label: 'Categorias', icon: FolderTree },
+    ...(user?.role === 'ADMIN' ? [{ to: '/users', label: 'Usuarios', icon: Users }] : []),
+  ], [user?.role]);
+
   return (
     <nav className="mt-8 flex flex-1 flex-col gap-1">
       {nav.map(({ to, label, icon: Icon, end }) => (
@@ -50,7 +47,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
           end={end}
           onClick={onNavigate}
           className={({ isActive }) =>
-            `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+            `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
               isActive ? 'bg-white/10 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white'
             }`
           }
@@ -73,7 +70,7 @@ export function Layout() {
     navigate('/login');
   };
 
-  const initials = user?.name?.slice(0, 2).toUpperCase() || 'CA';
+  const initials = user?.name?.slice(0, 2).toUpperCase() || 'CB';
   const sidebarFooter = (
     <div className="border-t border-white/10 pt-3">
       <div className="flex items-center gap-3 px-2 py-2">
@@ -82,10 +79,12 @@ export function Layout() {
         </div>
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-sm font-semibold text-white">{user?.name}</p>
-          <p className="truncate text-[11px] text-white/50">{user?.email}</p>
+          <p className="truncate text-[11px] text-white/50">
+            {user?.role === 'ADMIN' ? 'Administrador' : user?.city || 'Bodega'}
+          </p>
         </div>
       </div>
-      <button onClick={handleLogout} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-white/65 transition hover:bg-white/10 hover:text-white">
+      <button onClick={handleLogout} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white/65 transition hover:bg-white/10 hover:text-white">
         <LogOut className="h-4 w-4" /> Salir
       </button>
     </div>
@@ -122,7 +121,7 @@ export function Layout() {
       )}
 
       <main className="px-4 py-6 sm:px-6 lg:ml-64 lg:px-10 lg:py-8">
-        <div className="mx-auto max-w-6xl">
+        <div className="mx-auto max-w-7xl">
           <Outlet />
         </div>
       </main>

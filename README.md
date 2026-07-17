@@ -1,54 +1,53 @@
-# Personal Finance Monolith
+# Caja Bodega Monolith
 
-Aplicacion web multiusuario para gestion financiera personal con React, NestJS, MariaDB y Prisma.
+Aplicacion web para registrar ingresos por anticipos/pagos de cartera y egresos de caja menor por usuarios de bodega, con administracion central.
 
 ## Stack
 
 - Frontend: React + Vite + TypeScript + Tailwind CSS
 - Backend: NestJS monolitico
 - ORM/migraciones: Prisma
-- Base de datos: MariaDB existente
-- Auth: JWT access token + refresh token en cookie httpOnly
-- Graficos: Recharts
+- Base de datos: MariaDB embebido en el contenedor de produccion
+- Auth: usuario/contrasena, JWT access token y refresh token en cookie httpOnly
+- Graficos/exportes: Recharts, Excel compatible `.xls` y PDF simple
 
 ## Base de datos
 
-Backend local:
+En Docker de produccion la base vive dentro del mismo contenedor y persiste en el volumen `caja_bodega_mysql`. El entrypoint crea la base, crea el usuario de aplicacion y aplica migraciones automaticamente.
+
+Para desarrollo local, si corres Nest fuera de Docker, usa un MariaDB local:
 
 ```bash
-DATABASE_URL="mysql://root:docker@localhost:3306/financial_project"
+DATABASE_URL="mysql://root:docker@127.0.0.1:3306/agroplastic_cashbox"
 ```
 
-Backend dentro de Docker en la red `apps_mind_net`:
-
-```bash
-DATABASE_URL="mysql://root:docker@database:3306/financial_project"
-```
-
-La base de datos `financial_project` debe existir en MariaDB. Puedes crearla desde phpMyAdmin o con SQL:
+En ese caso la base debe existir antes de aplicar migraciones:
 
 ```sql
-CREATE DATABASE IF NOT EXISTS financial_project CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
-
-## Instalacion
-
-```bash
-cp .env.example backend/.env
-npm install
-npm run install:all
-npm run db:generate
-npm run db:migrate
+CREATE DATABASE IF NOT EXISTS agroplastic_cashbox CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 ## Desarrollo
 
 ```bash
+npm install
+npm run install:all
+npm run db:generate
+npm run db:migrate
 npm run dev
 ```
 
-- Backend: http://localhost:3001/caudalia/api
-- Frontend dev: http://localhost:5174/caudalia/
+- Backend/API: http://localhost:3002/caja-bodega/api
+- Frontend dev: http://localhost:3003/caja-bodega/
+- Monolito Nest: http://localhost:3002/caja-bodega/
+
+El primer login crea el administrador inicial si no existe:
+
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin12345
+MAX_WAREHOUSE_USERS=4
+```
 
 ## Produccion monolitica
 
@@ -57,44 +56,25 @@ npm run build:monolith
 npm run start:prod
 ```
 
-NestJS servira el frontend compilado desde `backend/public` bajo `http://localhost:3001/caudalia/`.
+NestJS sirve el frontend compilado desde `backend/public` bajo `/caja-bodega/`.
 
-## Produccion con Docker
-
-Este compose no crea MariaDB. Usa el servicio existente `database` en la red externa `apps_mind_net`.
+## Docker
 
 ```bash
 cp .env.production.example .env.production
-docker compose -f docker-compose.prod.yml build
-docker compose -f docker-compose.prod.yml up -d
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-La imagen final solo instala dependencias productivas del backend. El frontend se compila en una etapa intermedia y queda servido por NestJS.
-
-La URL publicada por el contenedor queda bajo subruta:
+El contenedor levanta MariaDB internamente, aplica migraciones y publica:
 
 ```bash
-http://localhost:3001/caudalia/
+http://localhost:3002/caja-bodega/
 ```
 
-Antes de levantar una version nueva con migraciones pendientes, ejecuta la migracion desde tu entorno de despliegue:
+Para ver logs del primer arranque:
 
 ```bash
-cd backend
-npm run prisma:migrate
+docker logs -f caja-bodega-app
 ```
 
-## Prueba rapida
-
-1. Registra un usuario.
-2. Crea dos cuentas.
-3. Crea categorias de ingreso y gasto.
-4. Registra ingresos, gastos y transferencias.
-5. Revisa dashboard, historicos y exportacion CSV.
-
-
-
-## Montaje en docker 
-
-docker compose -f docker-compose.prod.yml build
-docker compose -f docker-compose.prod.yml up -d
+El admin inicial se crea en el primer login con `ADMIN_USERNAME` y `ADMIN_PASSWORD` del `.env.production`.

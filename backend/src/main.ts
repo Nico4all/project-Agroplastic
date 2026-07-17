@@ -7,8 +7,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  const frontendUrl = config.get<string>('FRONTEND_URL') || 'http://localhost:5173';
-  const appBasePath = config.get<string>('APP_BASE_PATH') || '/caudalia';
+  const frontendUrl = config.get<string>('FRONTEND_URL') || 'http://localhost:3003';
+  const appBasePath = config.get<string>('APP_BASE_PATH') || '/caja-bodega';
   const normalizedBasePath = appBasePath.replace(/^\/+|\/+$/g, '');
 
   app.setGlobalPrefix(`${normalizedBasePath}/api`);
@@ -26,7 +26,7 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(config.get<number>('PORT') || 3000);
+  await app.listen(config.get<number>('PORT') || 3002);
 }
 
 bootstrap();

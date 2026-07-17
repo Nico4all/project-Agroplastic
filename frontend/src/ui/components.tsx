@@ -169,7 +169,7 @@ export function Pagination({ page, pageSize, total, onChange }: { page: number; 
   if (pages <= 1) return null;
   return (
     <div className="flex items-center justify-between gap-3 px-1 pt-3 text-sm">
-      <span className="text-mute">Pagina {page} de {pages} · {total} registros</span>
+      <span className="text-mute">Pagina {page} de {pages} - {total} registros</span>
       <div className="flex gap-2">
         <Button variant="secondary" disabled={page <= 1} onClick={() => onChange(page - 1)}>Anterior</Button>
         <Button variant="secondary" disabled={page >= pages} onClick={() => onChange(page + 1)}>Siguiente</Button>

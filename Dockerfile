@@ -6,8 +6,8 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 FROM frontend-deps AS frontend-build
-ARG VITE_BASE_PATH=/caudalia/
-ARG VITE_API_URL=/caudalia/api
+ARG VITE_BASE_PATH=/caja-bodega/
+ARG VITE_API_URL=/caja-bodega/api
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 ENV VITE_API_URL=${VITE_API_URL}
 COPY frontend ./
@@ -15,6 +15,9 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS backend-deps
 WORKDIR /app/backend
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
 COPY backend/package*.json ./
 RUN npm ci
 
@@ -30,12 +33,16 @@ WORKDIR /app/backend
 ENV NODE_ENV=production
 COPY backend/package*.json ./
 COPY backend/prisma ./prisma
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci && npm cache clean --force
 
 FROM node:22-bookworm-slim AS production
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=3002
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends mariadb-server mariadb-client openssl \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-prod-deps --chown=node:node /app/backend/node_modules ./node_modules
 COPY --from=backend-build --chown=node:node /app/backend/node_modules/.prisma ./node_modules/.prisma
@@ -43,7 +50,10 @@ COPY --from=backend-build --chown=node:node /app/backend/node_modules/@prisma/cl
 COPY --from=backend-build --chown=node:node /app/backend/dist ./dist
 COPY --from=backend-build --chown=node:node /app/backend/public ./public
 COPY --from=backend-build --chown=node:node /app/backend/prisma ./prisma
+COPY docker/start-single-container.sh /usr/local/bin/start-single-container.sh
 
-USER node
-EXPOSE 3001
-CMD ["node", "dist/main.js"]
+RUN chmod +x /usr/local/bin/start-single-container.sh
+
+VOLUME ["/var/lib/mysql"]
+EXPOSE 3002
+CMD ["start-single-container.sh"]

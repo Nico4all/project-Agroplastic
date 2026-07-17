@@ -2,29 +2,16 @@ import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useSt
 import { api, setAccessToken } from '../api/client';
 import { User } from '../types';
 
-export type AuthChallenge = {
-  requiresEmailVerification: true;
-  challengeId: string;
-  email: string;
-  purpose: 'REGISTER' | 'PASSWORD_CHANGE' | 'PASSWORD_RESET';
-  expiresAt: string;
-};
-
 type AuthSession = {
   accessToken: string;
   user: User;
 };
 
-type AuthResult = AuthSession | AuthChallenge;
-
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
   setCurrentUser: (user: User) => void;
-  login: (email: string, password: string) => Promise<AuthResult>;
-  register: (name: string, email: string, password: string) => Promise<AuthResult>;
-  verifyRegistration: (email: string, code: string) => Promise<void>;
-  resendRegistrationCode: (email: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<AuthSession>;
   logout: () => Promise<void>;
 };
 
@@ -41,7 +28,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setUser(data);
       } catch {
         try {
-          const { data } = await api.post('/auth/refresh');
+          const { data } = await api.post<AuthSession>('/auth/refresh');
           setAccessToken(data.accessToken);
           setUser(data.user);
         } catch {
@@ -58,29 +45,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     user,
     loading,
     setCurrentUser: setUser,
-    login: async (email, password) => {
-      const { data } = await api.post('/auth/login', { email, password });
-      if (data.accessToken) {
-        setAccessToken(data.accessToken);
-        setUser(data.user);
-      }
-      return data;
-    },
-    register: async (name, email, password) => {
-      const { data } = await api.post('/auth/register', { name, email, password });
-      if (data.accessToken) {
-        setAccessToken(data.accessToken);
-        setUser(data.user);
-      }
-      return data;
-    },
-    verifyRegistration: async (email, code) => {
-      const { data } = await api.post('/auth/verify-registration', { email, code });
+    login: async (username, password) => {
+      const { data } = await api.post<AuthSession>('/auth/login', { username, password });
       setAccessToken(data.accessToken);
       setUser(data.user);
-    },
-    resendRegistrationCode: async (email) => {
-      await api.post('/auth/resend-registration-code', { email });
+      return data;
     },
     logout: async () => {
       await api.post('/auth/logout');

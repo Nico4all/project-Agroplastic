@@ -1,34 +1,35 @@
 services:
-  caudalia:
+  caja-bodega:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
       args:
-        VITE_BASE_PATH: ${VITE_BASE_PATH:-/caudalia/}
-        VITE_API_URL: ${VITE_API_URL:-/caudalia/api}
-    image: caudalia-app:prod
-    container_name: caudalia-app
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/caja-bodega/}
+        VITE_API_URL: ${VITE_API_URL:-/caja-bodega/api}
+    image: caja-bodega-app:prod
+    container_name: caja-bodega-app
     restart: unless-stopped
     env_file:
       - .env.production
     environment:
       NODE_ENV: production
-      PORT: ${APP_PORT:-3001}
-      APP_BASE_PATH: ${APP_BASE_PATH:-/caudalia}
-      DATABASE_URL: ${DATABASE_URL:-mysql://root:docker@database:3306/financial_project}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      PORT: ${APP_PORT:-3002}
+      APP_BASE_PATH: ${APP_BASE_PATH:-/caja-bodega}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3002}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agroplastic_cashbox}
+      APP_DB_USER: ${APP_DB_USER:-caja_bodega}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-caja_bodega_pass}
     ports:
-      - "${HOST_APP_PORT:-3001}:${APP_PORT:-3001}"
-    networks:
-      - apps_mind_net
+      - "${HOST_APP_PORT:-3002}:${APP_PORT:-3002}"
+    volumes:
+      - caja_bodega_mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"const p=process.env.PORT||3001; const b=process.env.APP_BASE_PATH||'/caudalia'; fetch('http://127.0.0.1:'+p+b+'/api/auth/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"const p=process.env.PORT||3002; const b=process.env.APP_BASE_PATH||'/caja-bodega'; fetch('http://127.0.0.1:'+p+b+'/api/auth/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 90s
 
-networks:
-  apps_mind_net:
-    external: true
+volumes:
+  caja_bodega_mysql:

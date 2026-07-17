@@ -42,11 +42,35 @@ enum EmailCodePurpose {
   PASSWORD_RESET
 }
 
+enum UserRole {
+  ADMIN
+  BODEGA
+}
+
+enum IncomeType {
+  ADVANCE
+  RECEIVABLE_PAYMENT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK
+}
+
+enum RecordStatus {
+  ACTIVE
+  VOID
+}
+
 model User {
   id           String         @id @default(uuid())
   name         String
   email        String         @unique
+  username     String         @unique
   passwordHash String         @map("password_hash")
+  role         UserRole       @default(BODEGA)
+  city         String?
+  isActive     Boolean        @default(true) @map("is_active")
   emailVerifiedAt DateTime?   @map("email_verified_at")
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
@@ -56,10 +80,111 @@ model User {
   transfers    Transfer[]
   loans         Loan[]
   loanPayments  LoanPayment[]
+  clients       Client[]       @relation("ClientCreator")
+  expenseCategories ExpenseCategory[] @relation("ExpenseCategoryCreator")
+  incomes       Income[]       @relation("IncomeCreator")
+  expenses      Expense[]      @relation("ExpenseCreator")
+  voidedIncomes Income[]       @relation("IncomeVoidUser")
+  voidedExpenses Expense[]     @relation("ExpenseVoidUser")
   refreshTokens RefreshToken[]
   emailCodes    EmailVerificationCode[]
 
   @@map("users")
+}
+
+model Client {
+  id                String    @id @default(uuid())
+  fullName          String    @map("full_name")
+  identityDocument  String    @map("identity_document")
+  city              String?
+  isGeneral         Boolean   @default(false) @map("is_general")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdByUserId   String?   @map("created_by_user_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdBy         User?     @relation("ClientCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  incomes           Income[]
+
+  @@index([city])
+  @@index([isGeneral])
+  @@index([identityDocument])
+  @@map("clients")
+}
+
+model ExpenseCategory {
+  id              String    @id @default(uuid())
+  name            String    @unique
+  isActive        Boolean   @default(true) @map("is_active")
+  createdByUserId String?   @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdBy       User?     @relation("ExpenseCategoryCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  expenses        Expense[]
+
+  @@index([isActive])
+  @@map("expense_categories")
+}
+
+model Income {
+  id               String        @id @default(uuid())
+  userId           String        @map("user_id")
+  clientId         String        @map("client_id")
+  clientName       String        @map("client_name")
+  clientDocument   String        @map("client_document")
+  city             String
+  type             IncomeType
+  paymentMethod    PaymentMethod @map("payment_method")
+  amount           Decimal       @db.Decimal(14, 2)
+  description      String?
+  incomeDate       DateTime      @map("income_date")
+  status           RecordStatus  @default(ACTIVE)
+  voidReason       String?       @map("void_reason")
+  voidedAt         DateTime?     @map("voided_at")
+  voidedByUserId   String?       @map("voided_by_user_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  user             User          @relation("IncomeCreator", fields: [userId], references: [id], onDelete: Cascade)
+  client           Client        @relation(fields: [clientId], references: [id])
+  voidedBy         User?         @relation("IncomeVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([clientId])
+  @@index([city])
+  @@index([type])
+  @@index([paymentMethod])
+  @@index([status])
+  @@index([incomeDate])
+  @@index([userId, incomeDate])
+  @@map("incomes")
+}
+
+model Expense {
+  id               String          @id @default(uuid())
+  userId           String          @map("user_id")
+  categoryId       String          @map("category_id")
+  city             String
+  paidTo           String          @map("paid_to")
+  amount           Decimal         @db.Decimal(14, 2)
+  description      String?
+  approvedBy       String?         @map("approved_by")
+  expenseDate      DateTime        @map("expense_date")
+  status           RecordStatus    @default(ACTIVE)
+  voidReason       String?         @map("void_reason")
+  voidedAt         DateTime?       @map("voided_at")
+  voidedByUserId   String?         @map("voided_by_user_id")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  user             User            @relation("ExpenseCreator", fields: [userId], references: [id], onDelete: Cascade)
+  category         ExpenseCategory @relation(fields: [categoryId], references: [id])
+  voidedBy         User?           @relation("ExpenseVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([city])
+  @@index([status])
+  @@index([expenseDate])
+  @@index([userId, expenseDate])
+  @@map("expenses")
 }
 
 model EmailVerificationCode {

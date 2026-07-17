@@ -11,9 +11,9 @@ export class DashboardQueryDto {
 
   @IsOptional()
   @IsString()
-  accountId?: string;
+  userId?: string;
 
   @IsOptional()
   @IsString()
-  categoryId?: string;
+  city?: string;
 }
