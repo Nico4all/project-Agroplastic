@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, Power, UserCog } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Power, UserCog } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
@@ -23,6 +23,9 @@ export function UsersPage() {
   const [passwordUser, setPasswordUser] = useState<User | null>(null);
   const [passwordForm, setPasswordForm] = useState({ password: '', confirmation: '' });
   const [passwordError, setPasswordError] = useState('');
+  const [nameUser, setNameUser] = useState<User | null>(null);
+  const [name, setName] = useState('');
+  const [nameError, setNameError] = useState('');
   const isAdmin = user?.role === 'ADMIN';
   const { data = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
 
@@ -58,6 +61,18 @@ export function UsersPage() {
     onError: (err) => setPasswordError(getApiError(err, 'No se pudo cambiar la contrasena')),
   });
 
+  const updateName = useMutation({
+    mutationFn: ({ id, name: nextName }: { id: string; name: string }) => usersApi.update(id, { name: nextName }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast('Nombre actualizado');
+      setNameUser(null);
+      setName('');
+      setNameError('');
+    },
+    onError: (err) => setNameError(getApiError(err, 'No se pudo actualizar el nombre')),
+  });
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
@@ -68,6 +83,19 @@ export function UsersPage() {
     setPasswordUser(item);
     setPasswordForm({ password: '', confirmation: '' });
     setPasswordError('');
+  }
+
+  function openNameModal(item: User) {
+    setNameUser(item);
+    setName(item.name);
+    setNameError('');
+  }
+
+  function submitName(event: FormEvent) {
+    event.preventDefault();
+    setNameError('');
+    if (!nameUser) return;
+    updateName.mutate({ id: nameUser.id, name });
   }
 
   function submitPassword(event: FormEvent) {
@@ -129,6 +157,9 @@ export function UsersPage() {
                     <td className="px-4 py-3">
                       {item.role === 'BODEGA' ? (
                         <div className="flex justify-end gap-2">
+                          <Button variant="secondary" className="px-3 py-1.5" onClick={() => openNameModal(item)}>
+                            <Pencil className="h-4 w-4" /> Nombre
+                          </Button>
                           <Button variant="secondary" className="px-3 py-1.5" onClick={() => openPasswordModal(item)}>
                             <KeyRound className="h-4 w-4" /> Clave
                           </Button>
@@ -170,6 +201,30 @@ export function UsersPage() {
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
             <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Creando...' : 'Crear usuario'}</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(nameUser)}
+        onClose={() => { if (!updateName.isPending) setNameUser(null); }}
+        title={`Editar nombre${nameUser ? ` - ${nameUser.username}` : ''}`}
+      >
+        <form onSubmit={submitName} className="space-y-4">
+          <Field label="Nombre">
+            <Input
+              required
+              autoFocus
+              minLength={2}
+              maxLength={100}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+          {nameError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{nameError}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setNameUser(null)} disabled={updateName.isPending}>Cancelar</Button>
+            <Button type="submit" disabled={updateName.isPending}>{updateName.isPending ? 'Guardando...' : 'Guardar nombre'}</Button>
           </div>
         </form>
       </Modal>

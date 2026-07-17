@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
+import { Eye, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, ordersApi, productsApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
+import { Order } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 
@@ -26,6 +27,7 @@ export function OrdersPage() {
   const [clientId, setClientId] = useState('');
   const [lines, setLines] = useState<OrderLineForm[]>([emptyLine()]);
   const [error, setError] = useState('');
+  const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
 
   const params = useMemo(
     () => Object.fromEntries(Object.entries({ page, pageSize: 15, ...filters }).filter(([, value]) => value !== '')),
@@ -145,7 +147,7 @@ export function OrdersPage() {
                   <th className="px-4 py-3">Total</th>
                   <th className="px-4 py-3">Facturacion</th>
                   <th className="px-4 py-3">Usuario</th>
-                  {isAdmin && <th className="px-4 py-3 text-right">Acciones</th>}
+                  <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -156,9 +158,10 @@ export function OrdersPage() {
                     <td className="px-4 py-3"><p className="font-semibold">{order.clientName}</p><p className="text-xs text-mute">{order.clientDocument}</p></td>
                     <td className="px-4 py-3">
                       <ul className="space-y-1">
-                        {order.items.map((item) => (
+                        {order.items.slice(0, 2).map((item) => (
                           <li key={item.id}><span className="font-medium">{item.productDescription}</span> <span className="text-xs text-mute">x {item.quantity} a {money(item.unitPrice)}</span></li>
                         ))}
+                        {order.items.length > 2 && <li className="text-xs font-semibold text-brand-dark">+ {order.items.length - 2} productos mas</li>}
                       </ul>
                     </td>
                     <td className="money px-4 py-3 font-bold text-brand-dark">{money(order.totalAmount)}</td>
@@ -166,9 +169,12 @@ export function OrdersPage() {
                       <Badge tone={order.invoicedAt ? 'income' : 'neutral'}>{order.invoicedAt ? 'Facturado' : 'Pendiente'}</Badge>
                     </td>
                     <td className="px-4 py-3">{order.user?.name || '-'}</td>
-                    {isAdmin && (
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end">
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="secondary" className="px-2 py-1.5" onClick={() => setViewingOrder(order)}>
+                          <Eye className="h-4 w-4" /> Ver detalle
+                        </Button>
+                        {isAdmin && (
                           <Button
                             variant={order.invoicedAt ? 'secondary' : 'primary'}
                             className="px-2 py-1.5"
@@ -177,9 +183,9 @@ export function OrdersPage() {
                           >
                             <ReceiptText className="h-4 w-4" /> {order.invoicedAt ? 'Desmarcar' : 'Facturar'}
                           </Button>
-                        </div>
-                      </td>
-                    )}
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -238,6 +244,67 @@ export function OrdersPage() {
             <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Guardando...' : 'Registrar pedido'}</Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(viewingOrder)}
+        onClose={() => setViewingOrder(null)}
+        title={`Detalle del pedido${viewingOrder ? ` ${viewingOrder.documentNumber}` : ''}`}
+        size="large"
+      >
+        {viewingOrder && (
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg bg-paper p-3">
+                <p className="text-xs font-semibold uppercase text-mute">Fecha</p>
+                <p className="mt-1 font-semibold">{dateInput(viewingOrder.createdAt)}</p>
+              </div>
+              <div className="rounded-lg bg-paper p-3 sm:col-span-2">
+                <p className="text-xs font-semibold uppercase text-mute">Cliente</p>
+                <p className="mt-1 font-semibold">{viewingOrder.clientName}</p>
+                <p className="text-xs text-mute">{viewingOrder.clientDocument}</p>
+              </div>
+              <div className="rounded-lg bg-paper p-3">
+                <p className="text-xs font-semibold uppercase text-mute">Usuario</p>
+                <p className="mt-1 font-semibold">{viewingOrder.user?.name || '-'}</p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-line">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead className="bg-paper text-left text-xs uppercase text-mute">
+                    <tr>
+                      <th className="px-4 py-3">Producto</th>
+                      <th className="px-4 py-3 text-right">Cantidad</th>
+                      <th className="px-4 py-3 text-right">Precio unitario</th>
+                      <th className="px-4 py-3 text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {viewingOrder.items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-4 py-3 font-semibold">{item.productDescription}</td>
+                        <td className="px-4 py-3 text-right">{item.quantity}</td>
+                        <td className="money px-4 py-3 text-right">{money(item.unitPrice)}</td>
+                        <td className="money px-4 py-3 text-right font-semibold">{money(item.lineTotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between border-t border-line bg-brand-soft px-4 py-3">
+                <span className="text-sm font-bold text-brand-dark">Total ({viewingOrder.items.length} productos)</span>
+                <span className="money text-lg font-extrabold text-brand-dark">{money(viewingOrder.totalAmount)}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <Badge tone={viewingOrder.invoicedAt ? 'income' : 'neutral'}>{viewingOrder.invoicedAt ? 'Facturado' : 'Pendiente de facturacion'}</Badge>
+              <Button variant="secondary" onClick={() => setViewingOrder(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </section>
   );

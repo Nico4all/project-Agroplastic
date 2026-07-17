@@ -100,8 +100,8 @@ export class UsersService {
   async updateManaged(requestUserId: string, userId: string, dto: UpdateManagedUserDto) {
     await this.ensureAdmin(requestUserId);
 
-    if (dto.isActive === undefined && dto.password === undefined) {
-      throw new BadRequestException('Debes indicar el estado o una nueva contrasena');
+    if (dto.name === undefined && dto.isActive === undefined && dto.password === undefined) {
+      throw new BadRequestException('Debes indicar el nombre, el estado o una nueva contrasena');
     }
 
     const managedUser = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -113,6 +113,10 @@ export class UsersService {
     if (dto.password !== undefined && !dto.password.trim()) {
       throw new BadRequestException('La nueva contrasena no puede estar vacia');
     }
+    const name = dto.name?.trim();
+    if (dto.name !== undefined && !name) {
+      throw new BadRequestException('El nombre es obligatorio');
+    }
 
     const passwordHash = dto.password === undefined ? undefined : await argon2.hash(dto.password);
     const shouldRevokeSessions = passwordHash !== undefined || dto.isActive === false;
@@ -122,6 +126,7 @@ export class UsersService {
       const updated = await tx.user.update({
         where: { id: userId },
         data: {
+          ...(name !== undefined ? { name } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
           ...(passwordHash !== undefined ? { passwordHash } : {}),
         },

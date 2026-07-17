@@ -60,11 +60,9 @@ export function CategoriesPage() {
           <h1 className="text-2xl font-extrabold tracking-tight">Categorias de gasto</h1>
           <p className="text-sm text-mute">Descargue, Papeleria, Transporte, Aux de bodega y las que necesite la operacion.</p>
         </div>
-        {isAdmin && (
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> Nueva
-          </Button>
-        )}
+        <Button onClick={openCreate}>
+          <Plus className="h-4 w-4" /> Nueva
+        </Button>
       </div>
 
       {isLoading ? (
@@ -94,7 +92,7 @@ export function CategoriesPage() {
           </ul>
         </Card>
       ) : (
-        <EmptyState title="Sin categorias" action={isAdmin ? <Button onClick={openCreate}>Crear categoria</Button> : undefined} />
+        <EmptyState title="Sin categorias" action={<Button onClick={openCreate}>Crear categoria</Button>} />
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar categoria' : 'Nueva categoria'}>

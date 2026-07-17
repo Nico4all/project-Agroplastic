@@ -249,7 +249,7 @@ export function EmptyState({ title, subtitle, action }: { title: string; subtitl
   );
 }
 
-export function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+export function Modal({ open, onClose, title, children, size = 'default' }: { open: boolean; onClose: () => void; title: string; children: ReactNode; size?: 'default' | 'large' }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
@@ -261,7 +261,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-4" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-surface shadow-xl sm:max-w-lg sm:rounded-2xl">
+      <div className={`max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl ${size === 'large' ? 'sm:max-w-4xl' : 'sm:max-w-lg'}`}>
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h2 className="text-base font-bold">{title}</h2>
           <button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1 text-mute transition hover:bg-paper hover:text-ink">

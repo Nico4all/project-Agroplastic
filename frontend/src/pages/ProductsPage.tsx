@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Package, Plus, Search } from 'lucide-react';
+import { Package, Pencil, Plus, Search } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { productsApi } from '../api/resources';
-import { Button, Card, EmptyState, Field, Input, Modal, Spinner, useToast } from '../ui/components';
+import { useAuth } from '../state/AuthContext';
+import { Product } from '../types';
+import { Button, Card, EmptyState, Field, Input, Modal, Spinner, Toggle, useToast } from '../ui/components';
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -11,11 +13,14 @@ function getApiError(error: any, fallback: string) {
 }
 
 export function ProductsPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const isAdmin = user?.role === 'ADMIN';
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [description, setDescription] = useState('');
+  const [editing, setEditing] = useState<Product | null>(null);
   const [error, setError] = useState('');
   const params = useMemo(() => (search ? { search } : undefined), [search]);
   const { data = [], isLoading } = useQuery({ queryKey: ['products', params], queryFn: () => productsApi.list(params) });
@@ -31,10 +36,39 @@ export function ProductsPage() {
     onError: (err) => setError(getApiError(err, 'No se pudo crear el producto')),
   });
 
+  const update = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { description?: string; isActive?: boolean } }) => productsApi.update(id, payload),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(variables.payload.isActive === undefined ? 'Producto actualizado' : `Producto ${variables.payload.isActive ? 'activado' : 'desactivado'}`);
+      if (variables.payload.description !== undefined) setModalOpen(false);
+    },
+    onError: (err) => {
+      const message = getApiError(err, 'No se pudo actualizar el producto');
+      if (modalOpen) setError(message);
+      else toast(message, 'error');
+    },
+  });
+
+  const openCreate = () => {
+    setEditing(null);
+    setDescription('');
+    setError('');
+    setModalOpen(true);
+  };
+
+  const openEdit = (product: Product) => {
+    setEditing(product);
+    setDescription(product.description);
+    setError('');
+    setModalOpen(true);
+  };
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
-    await create.mutateAsync({ description });
+    if (editing) await update.mutateAsync({ id: editing.id, payload: { description } });
+    else await create.mutateAsync({ description });
   }
 
   return (
@@ -44,9 +78,11 @@ export function ProductsPage() {
           <h1 className="text-2xl font-extrabold tracking-tight">Productos</h1>
           <p className="text-sm text-mute">Catalogo general sin manejo de inventario.</p>
         </div>
-        <Button onClick={() => { setError(''); setModalOpen(true); }}>
-          <Plus className="h-4 w-4" /> Nuevo
-        </Button>
+        {isAdmin && (
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" /> Nuevo
+          </Button>
+        )}
       </div>
 
       <Card className="p-4">
@@ -67,6 +103,7 @@ export function ProductsPage() {
               <tr>
                 <th className="px-4 py-3">Descripcion</th>
                 <th className="px-4 py-3">Estado</th>
+                {isAdmin && <th className="px-4 py-3 text-right">Acciones</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -79,16 +116,30 @@ export function ProductsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">{product.isActive ? 'Activo' : 'Inactivo'}</td>
+                  {isAdmin && (
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-3">
+                        <Toggle
+                          checked={product.isActive}
+                          label={`${product.isActive ? 'Desactivar' : 'Activar'} ${product.description}`}
+                          onChange={(isActive) => update.mutate({ id: product.id, payload: { isActive } })}
+                        />
+                        <Button variant="ghost" className="px-2" title="Editar" onClick={() => openEdit(product)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </Card>
       ) : (
-        <EmptyState title="Sin productos" action={<Button onClick={() => setModalOpen(true)}>Crear producto</Button>} />
+        <EmptyState title="Sin productos" action={isAdmin ? <Button onClick={openCreate}>Crear producto</Button> : undefined} />
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo producto">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar producto' : 'Nuevo producto'}>
         <form onSubmit={submit} className="space-y-4">
           <Field label="Descripcion">
             <Input required minLength={2} maxLength={191} autoFocus value={description} onChange={(event) => setDescription(event.target.value)} />
@@ -96,7 +147,7 @@ export function ProductsPage() {
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Guardando...' : 'Guardar'}</Button>
+            <Button type="submit" disabled={create.isPending || update.isPending}>{create.isPending || update.isPending ? 'Guardando...' : 'Guardar'}</Button>
           </div>
         </form>
       </Modal>

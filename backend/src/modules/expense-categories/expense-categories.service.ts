@@ -22,7 +22,7 @@ export class ExpenseCategoriesService {
   }
 
   async create(userId: string, dto: CreateExpenseCategoryDto) {
-    await this.users.ensureAdmin(userId);
+    await this.users.getActiveUser(userId);
     await this.ensureDefaults();
 
     try {

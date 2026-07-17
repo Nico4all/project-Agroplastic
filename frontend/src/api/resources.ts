@@ -77,12 +77,13 @@ export const historyApi = {
 export const usersApi = {
   list: async () => (await api.get<User[]>('/users')).data,
   create: async (payload: { username: string; password: string; name: string; documentSuffix: string }) => (await api.post<User>('/users', payload)).data,
-  update: async (id: string, payload: { isActive?: boolean; password?: string }) => (await api.patch<User>(`/users/${id}`, payload)).data,
+  update: async (id: string, payload: { name?: string; isActive?: boolean; password?: string }) => (await api.patch<User>(`/users/${id}`, payload)).data,
 };
 
 export const productsApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<Product[]>('/products', { params })).data,
   create: async (payload: { description: string }) => (await api.post<Product>('/products', payload)).data,
+  update: async (id: string, payload: { description?: string; isActive?: boolean }) => (await api.patch<Product>(`/products/${id}`, payload)).data,
 };
 
 export const ordersApi = {
