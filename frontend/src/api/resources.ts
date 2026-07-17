@@ -8,6 +8,8 @@ import {
   Loan,
   LoanPayment,
   PaginatedResult,
+  Order,
+  Product,
   Transaction,
   Transfer,
   User,
@@ -74,7 +76,20 @@ export const historyApi = {
 
 export const usersApi = {
   list: async () => (await api.get<User[]>('/users')).data,
-  create: async (payload: { username: string; password: string; name: string; city?: string }) => (await api.post<User>('/users', payload)).data,
+  create: async (payload: { username: string; password: string; name: string; documentSuffix: string }) => (await api.post<User>('/users', payload)).data,
+  update: async (id: string, payload: { isActive?: boolean; password?: string }) => (await api.patch<User>(`/users/${id}`, payload)).data,
+};
+
+export const productsApi = {
+  list: async (params?: Record<string, unknown>) => (await api.get<Product[]>('/products', { params })).data,
+  create: async (payload: { description: string }) => (await api.post<Product>('/products', payload)).data,
+};
+
+export const ordersApi = {
+  list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<Order>>('/orders', { params })).data,
+  create: async (payload: { clientId: string; items: Array<{ productId: string; quantity: number; unitPrice: number }> }) =>
+    (await api.post<Order>('/orders', payload)).data,
+  setInvoiced: async (id: string, isInvoiced: boolean) => (await api.patch<Order>(`/orders/${id}/invoiced`, { isInvoiced })).data,
 };
 
 export const clientsApi = {
@@ -93,6 +108,7 @@ export const incomesApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<CashIncome>>('/incomes', { params })).data,
   create: async (payload: Partial<CashIncome>) => (await api.post<CashIncome>('/incomes', payload)).data,
   void: async (id: string, payload: { reason?: string }) => (await api.patch<CashIncome>(`/incomes/${id}/void`, payload)).data,
+  setCaused: async (id: string, isCaused: boolean) => (await api.patch<CashIncome>(`/incomes/${id}/caused`, { isCaused })).data,
   exportExcel: async (params?: Record<string, unknown>) => (await api.get('/incomes/export/excel', { params, responseType: 'blob' })).data as Blob,
   exportPdf: async (params?: Record<string, unknown>) => (await api.get('/incomes/export/pdf', { params, responseType: 'blob' })).data as Blob,
   receiptPdf: async (id: string) => (await api.get(`/incomes/${id}/pdf`, { responseType: 'blob' })).data as Blob,
@@ -102,6 +118,7 @@ export const expensesApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<CashExpense>>('/expenses', { params })).data,
   create: async (payload: Partial<CashExpense>) => (await api.post<CashExpense>('/expenses', payload)).data,
   void: async (id: string, payload: { reason?: string }) => (await api.patch<CashExpense>(`/expenses/${id}/void`, payload)).data,
+  setCaused: async (id: string, isCaused: boolean) => (await api.patch<CashExpense>(`/expenses/${id}/caused`, { isCaused })).data,
   exportExcel: async (params?: Record<string, unknown>) => (await api.get('/expenses/export/excel', { params, responseType: 'blob' })).data as Blob,
   exportPdf: async (params?: Record<string, unknown>) => (await api.get('/expenses/export/pdf', { params, responseType: 'blob' })).data as Blob,
   receiptPdf: async (id: string) => (await api.get(`/expenses/${id}/pdf`, { responseType: 'blob' })).data as Blob,

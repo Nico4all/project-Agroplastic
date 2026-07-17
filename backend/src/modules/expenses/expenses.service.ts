@@ -52,19 +52,28 @@ export class ExpensesService {
     const category = await this.prisma.expenseCategory.findFirst({ where: { id: dto.categoryId, isActive: true } });
     if (!category) throw new BadRequestException('Categoria no encontrada o inactiva');
 
-    const city = this.resolveCity(actor, dto.city);
-    const expense = await this.prisma.expense.create({
-      data: {
-        userId: actor.id,
-        categoryId: category.id,
-        city,
-        paidTo: dto.paidTo.trim(),
-        amount: new Prisma.Decimal(dto.amount),
-        description: dto.description?.trim() || null,
-        approvedBy: dto.approvedBy?.trim() || actor.name,
-        expenseDate: new Date(dto.expenseDate),
-      },
-      include: this.includeRelations(),
+    const expense = await this.prisma.$transaction(async (transaction) => {
+      const numberedUser = await transaction.user.update({
+        where: { id: actor.id },
+        data: { nextExpenseNumber: { increment: 1 } },
+        select: { documentSuffix: true, nextExpenseNumber: true },
+      });
+      const documentSequence = numberedUser.nextExpenseNumber - 1;
+
+      return transaction.expense.create({
+        data: {
+          userId: actor.id,
+          categoryId: category.id,
+          documentSequence,
+          documentNumber: `${numberedUser.documentSuffix}-${documentSequence}`,
+          paidTo: dto.paidTo.trim(),
+          amount: new Prisma.Decimal(dto.amount),
+          description: dto.description?.trim() || null,
+          approvedBy: dto.approvedBy?.trim() || actor.name,
+          expenseDate: new Date(dto.expenseDate),
+        },
+        include: this.includeRelations(),
+      });
     });
 
     return this.serialize(expense);
@@ -79,6 +88,7 @@ export class ExpensesService {
       where: { id },
       data: {
         status: RecordStatus.VOID,
+        causedAt: null,
         voidReason: dto.reason?.trim() || null,
         voidedAt: new Date(),
         voidedByUserId: actor.id,
@@ -89,19 +99,39 @@ export class ExpensesService {
     return this.serialize(updated);
   }
 
+  async updateCausedStatus(userId: string, id: string, isCaused: boolean) {
+    await this.users.ensureAdmin(userId);
+    const current = await this.prisma.expense.findUnique({
+      where: { id },
+      include: this.includeRelations(),
+    });
+    if (!current) throw new NotFoundException('Egreso no encontrado');
+    if (isCaused && current.status === RecordStatus.VOID) {
+      throw new BadRequestException('No puedes causar un egreso anulado');
+    }
+
+    const updated = await this.prisma.expense.update({
+      where: { id },
+      data: { causedAt: isCaused ? new Date() : null },
+      include: this.includeRelations(),
+    });
+    return this.serialize(updated);
+  }
+
   async exportExcel(userId: string, query: QueryExpensesDto) {
     const rows = await this.findRowsForExport(userId, query);
     return buildExcelHtml(
       'Listado de egresos',
-      ['Fecha', 'Ciudad', 'Usuario', 'Categoria', 'Pagado a', 'Valor', 'Estado', 'Aprobado por', 'Descripcion'],
+      ['Id documento', 'Fecha', 'Usuario', 'Categoria', 'Pagado a', 'Valor', 'Estado', 'Causacion', 'Aprobado por', 'Descripcion'],
       rows.map((row) => [
+        row.documentNumber,
         formatDate(row.expenseDate),
-        row.city,
         row.user.name,
         row.category.name,
         row.paidTo,
         decimalToNumber(row.amount),
         this.statusLabel(row.status),
+        row.causedAt ? 'Causado' : 'Pendiente',
         row.approvedBy || '',
         row.description || '',
       ]),
@@ -118,7 +148,7 @@ export class ExpensesService {
       `Registros: ${rows.length}`,
       '',
       ...rows.slice(0, 42).map((row) =>
-        `${formatDate(row.expenseDate)} | ${row.city} | ${row.user.name} | ${row.category.name} | ${row.paidTo} | ${formatMoney(decimalToNumber(row.amount))} | ${this.statusLabel(row.status)}`,
+        `${row.documentNumber} | ${formatDate(row.expenseDate)} | ${row.user.name} | ${row.category.name} | ${row.paidTo} | ${formatMoney(decimalToNumber(row.amount))} | ${this.statusLabel(row.status)} | ${row.causedAt ? 'Causado' : 'Pendiente'}`,
       ),
     ];
     return buildSimplePdf('Listado de egresos', lines);
@@ -128,15 +158,15 @@ export class ExpensesService {
     const actor = await this.users.getActiveUser(userId);
     const expense = await this.findAccessible(actor, id);
     const lines = [
-      `Ciudad: ${expense.city}`,
       `Fecha: ${formatDate(expense.expenseDate)}`,
-      `No - Id: ${expense.id}`,
+      `No - Id: ${expense.documentNumber}`,
       `Pagado A: ${expense.paidTo}`,
       `Valor: ${formatMoney(decimalToNumber(expense.amount))}`,
       `Categoria: ${expense.category.name}`,
       `Descripcion: ${expense.description || ''}`,
       `Aprobado por: ${expense.approvedBy || expense.user.name}`,
       `Estado: ${this.statusLabel(expense.status)}`,
+      `Causacion: ${expense.causedAt ? 'Causado' : 'Pendiente'}`,
       expense.status === RecordStatus.VOID ? `Anulado: ${expense.voidReason || 'Sin motivo'}` : '',
     ].filter(Boolean);
     return buildSimplePdf('Recibo de caja menor', lines);
@@ -170,7 +200,7 @@ export class ExpensesService {
           { description: { contains: query.search } },
           { paidTo: { contains: query.search } },
           { approvedBy: { contains: query.search } },
-          { city: { contains: query.search } },
+          { documentNumber: { contains: query.search } },
           { category: { name: { contains: query.search } } },
         ],
       });
@@ -183,27 +213,15 @@ export class ExpensesService {
     return {
       ...(and.length ? { AND: and } : {}),
       ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
-      ...(actor.role === UserRole.ADMIN && query.city ? { city: query.city } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(Object.keys(date).length ? { expenseDate: date } : {}),
     };
   }
 
-  private resolveCity(actor: User, requested?: string) {
-    if (actor.role === UserRole.ADMIN) {
-      const city = requested?.trim() || actor.city;
-      if (!city) throw new BadRequestException('La ciudad es obligatoria');
-      return city;
-    }
-
-    if (!actor.city) throw new BadRequestException('El usuario de bodega no tiene ciudad asignada');
-    return actor.city;
-  }
-
   private includeRelations() {
     return {
-      user: { select: { id: true, name: true, username: true, city: true, role: true } },
+      user: { select: { id: true, name: true, username: true, documentSuffix: true, role: true } },
       category: { select: { id: true, name: true } },
       voidedBy: { select: { id: true, name: true, username: true } },
     };

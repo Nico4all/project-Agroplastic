@@ -14,15 +14,6 @@ export class UpdateClientDto {
   identityDocument?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  city?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isGeneral?: boolean;
-
-  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 }

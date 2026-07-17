@@ -20,11 +20,6 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  city?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(120)
   approvedBy?: string;
 

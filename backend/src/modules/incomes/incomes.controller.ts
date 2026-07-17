@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateIncomeDto } from './dto/create-income.dto';
 import { QueryIncomesDto } from './dto/query-incomes.dto';
+import { UpdateCausedStatusDto } from './dto/update-caused-status.dto';
 import { VoidIncomeDto } from './dto/void-income.dto';
 import { IncomesService } from './incomes.service';
 
@@ -50,5 +51,15 @@ export class IncomesController {
   @HttpCode(200)
   void(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Body() dto: VoidIncomeDto) {
     return this.incomes.void(user.userId, id, dto);
+  }
+
+  @Patch(':id/caused')
+  @HttpCode(200)
+  updateCausedStatus(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateCausedStatusDto,
+  ) {
+    return this.incomes.updateCausedStatus(user.userId, id, dto.isCaused);
   }
 }

@@ -6,7 +6,7 @@ export type AuthenticatedUser = {
   username: string;
   name: string;
   role: UserRole;
-  city?: string | null;
+  documentSuffix: string;
 };
 
 export const CurrentUser = createParamDecorator(

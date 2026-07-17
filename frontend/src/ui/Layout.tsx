@@ -4,7 +4,9 @@ import {
   HandCoins,
   LogOut,
   Menu,
+  Package,
   ReceiptText,
+  ShoppingCart,
   Users,
   UserSquare2,
   X,
@@ -33,6 +35,8 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     { to: '/', label: 'Panel', icon: BarChart3, end: true },
     { to: '/incomes', label: 'Ingresos', icon: HandCoins },
     { to: '/expenses', label: 'Egresos', icon: ReceiptText },
+    { to: '/orders', label: 'Pedidos', icon: ShoppingCart },
+    { to: '/products', label: 'Productos', icon: Package },
     { to: '/clients', label: 'Clientes', icon: UserSquare2 },
     { to: '/categories', label: 'Categorias', icon: FolderTree },
     ...(user?.role === 'ADMIN' ? [{ to: '/users', label: 'Usuarios', icon: Users }] : []),
@@ -80,7 +84,7 @@ export function Layout() {
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-sm font-semibold text-white">{user?.name}</p>
           <p className="truncate text-[11px] text-white/50">
-            {user?.role === 'ADMIN' ? 'Administrador' : user?.city || 'Bodega'}
+            {user?.role === 'ADMIN' ? 'Administrador' : `Bodega - ${user?.documentSuffix || ''}`}
           </p>
         </div>
       </div>

@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { normalizeDocumentSuffix } from '../../common/helpers/normalization';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateManagedUserDto } from './dto/create-managed-user.dto';
+import { UpdateManagedUserDto } from './dto/update-managed-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -21,7 +23,7 @@ export class UsersService {
         email: true,
         username: true,
         role: true,
-        city: true,
+        documentSuffix: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -40,7 +42,7 @@ export class UsersService {
         name: true,
         username: true,
         role: true,
-        city: true,
+        documentSuffix: true,
         isActive: true,
         createdAt: true,
       },
@@ -61,32 +63,88 @@ export class UsersService {
     if (existing) throw new ConflictException('El usuario ya existe');
 
     const passwordHash = await argon2.hash(dto.password);
-    const city = dto.city?.trim() || null;
+    const documentSuffix = normalizeDocumentSuffix(dto.documentSuffix);
+    if (!documentSuffix) throw new BadRequestException('El sufijo de documentos es obligatorio');
     const name = dto.name.trim();
     if (!name) throw new BadRequestException('El nombre es obligatorio');
 
-    const user = await this.prisma.user.create({
-      data: {
-        name,
-        username,
-        email: `${username}@local.agroplastic`,
-        passwordHash,
-        role: UserRole.BODEGA,
-        city,
-        emailVerifiedAt: new Date(),
-      },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        role: true,
-        city: true,
-        isActive: true,
-        createdAt: true,
-      },
-    });
+    try {
+      return await this.prisma.user.create({
+        data: {
+          name,
+          username,
+          email: `${username}@local.agroplastic`,
+          passwordHash,
+          role: UserRole.BODEGA,
+          documentSuffix,
+          emailVerifiedAt: new Date(),
+        },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          role: true,
+          documentSuffix: true,
+          isActive: true,
+          createdAt: true,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('El usuario o el sufijo de documentos ya existe');
+      }
+      throw error;
+    }
+  }
 
-    return user;
+  async updateManaged(requestUserId: string, userId: string, dto: UpdateManagedUserDto) {
+    await this.ensureAdmin(requestUserId);
+
+    if (dto.isActive === undefined && dto.password === undefined) {
+      throw new BadRequestException('Debes indicar el estado o una nueva contrasena');
+    }
+
+    const managedUser = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!managedUser) throw new NotFoundException('Usuario no encontrado');
+    if (managedUser.role !== UserRole.BODEGA) {
+      throw new ForbiddenException('La cuenta administradora no se puede modificar desde esta pantalla');
+    }
+
+    if (dto.password !== undefined && !dto.password.trim()) {
+      throw new BadRequestException('La nueva contrasena no puede estar vacia');
+    }
+
+    const passwordHash = dto.password === undefined ? undefined : await argon2.hash(dto.password);
+    const shouldRevokeSessions = passwordHash !== undefined || dto.isActive === false;
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: {
+          ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          ...(passwordHash !== undefined ? { passwordHash } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          role: true,
+          documentSuffix: true,
+          isActive: true,
+          createdAt: true,
+        },
+      });
+
+      if (shouldRevokeSessions) {
+        await tx.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+      }
+
+      return updated;
+    });
   }
 
   async ensureAdmin(userId: string) {

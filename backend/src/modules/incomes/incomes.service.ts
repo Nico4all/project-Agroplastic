@@ -54,21 +54,30 @@ export class IncomesService {
     const client = await this.clients.findAccessible(actor, dto.clientId);
     if (!client.isActive) throw new BadRequestException('El cliente esta inactivo');
 
-    const city = this.resolveCity(actor, client.city, dto.city);
-    const income = await this.prisma.income.create({
-      data: {
-        userId: actor.id,
-        clientId: client.id,
-        clientName: client.fullName,
-        clientDocument: client.identityDocument,
-        city,
-        type: dto.type,
-        paymentMethod: dto.paymentMethod,
-        amount: new Prisma.Decimal(dto.amount),
-        description: dto.description?.trim() || null,
-        incomeDate: new Date(dto.incomeDate),
-      },
-      include: this.includeRelations(),
+    const income = await this.prisma.$transaction(async (transaction) => {
+      const numberedUser = await transaction.user.update({
+        where: { id: actor.id },
+        data: { nextIncomeNumber: { increment: 1 } },
+        select: { documentSuffix: true, nextIncomeNumber: true },
+      });
+      const documentSequence = numberedUser.nextIncomeNumber - 1;
+
+      return transaction.income.create({
+        data: {
+          userId: actor.id,
+          clientId: client.id,
+          clientName: client.fullName,
+          clientDocument: client.identityDocument,
+          documentSequence,
+          documentNumber: `${numberedUser.documentSuffix}-${documentSequence}`,
+          type: dto.type,
+          paymentMethod: dto.paymentMethod,
+          amount: new Prisma.Decimal(dto.amount),
+          description: dto.description?.trim() || null,
+          incomeDate: new Date(dto.incomeDate),
+        },
+        include: this.includeRelations(),
+      });
     });
 
     return this.serialize(income);
@@ -83,6 +92,7 @@ export class IncomesService {
       where: { id },
       data: {
         status: RecordStatus.VOID,
+        causedAt: null,
         voidReason: dto.reason?.trim() || null,
         voidedAt: new Date(),
         voidedByUserId: actor.id,
@@ -93,14 +103,33 @@ export class IncomesService {
     return this.serialize(updated);
   }
 
+  async updateCausedStatus(userId: string, id: string, isCaused: boolean) {
+    await this.users.ensureAdmin(userId);
+    const current = await this.prisma.income.findUnique({
+      where: { id },
+      include: this.includeRelations(),
+    });
+    if (!current) throw new NotFoundException('Ingreso no encontrado');
+    if (isCaused && current.status === RecordStatus.VOID) {
+      throw new BadRequestException('No puedes causar un ingreso anulado');
+    }
+
+    const updated = await this.prisma.income.update({
+      where: { id },
+      data: { causedAt: isCaused ? new Date() : null },
+      include: this.includeRelations(),
+    });
+    return this.serialize(updated);
+  }
+
   async exportExcel(userId: string, query: QueryIncomesDto) {
     const rows = await this.findRowsForExport(userId, query);
     return buildExcelHtml(
       'Listado de ingresos',
-      ['Fecha', 'Ciudad', 'Usuario', 'Cliente', 'Documento', 'Tipo', 'Ingreso', 'Valor', 'Estado', 'Descripcion'],
+      ['Id documento', 'Fecha', 'Usuario', 'Cliente', 'Documento cliente', 'Tipo', 'Ingreso', 'Valor', 'Estado', 'Causacion', 'Descripcion'],
       rows.map((row) => [
+        row.documentNumber,
         formatDate(row.incomeDate),
-        row.city,
         row.user.name,
         row.clientName,
         row.clientDocument,
@@ -108,6 +137,7 @@ export class IncomesService {
         this.paymentMethodLabel(row.paymentMethod),
         decimalToNumber(row.amount),
         this.statusLabel(row.status),
+        row.causedAt ? 'Causado' : 'Pendiente',
         row.description || '',
       ]),
     );
@@ -123,7 +153,7 @@ export class IncomesService {
       `Registros: ${rows.length}`,
       '',
       ...rows.slice(0, 42).map((row) =>
-        `${formatDate(row.incomeDate)} | ${row.city} | ${row.user.name} | ${row.clientName} | ${this.incomeTypeLabel(row.type)} | ${formatMoney(decimalToNumber(row.amount))} | ${this.statusLabel(row.status)}`,
+        `${row.documentNumber} | ${formatDate(row.incomeDate)} | ${row.user.name} | ${row.clientName} | ${this.incomeTypeLabel(row.type)} | ${formatMoney(decimalToNumber(row.amount))} | ${this.statusLabel(row.status)} | ${row.causedAt ? 'Causado' : 'Pendiente'}`,
       ),
     ];
     return buildSimplePdf('Listado de ingresos', lines);
@@ -133,9 +163,8 @@ export class IncomesService {
     const actor = await this.users.getActiveUser(userId);
     const income = await this.findAccessible(actor, id);
     const lines = [
-      `Ciudad: ${income.city}`,
       `Fecha: ${formatDate(income.incomeDate)}`,
-      `No - Id: ${income.id}`,
+      `No - Id: ${income.documentNumber}`,
       `Cliente: ${income.clientName}`,
       `Documento: ${income.clientDocument}`,
       `Tipo: ${this.incomeTypeLabel(income.type)}`,
@@ -143,6 +172,7 @@ export class IncomesService {
       `Valor: ${formatMoney(decimalToNumber(income.amount))}`,
       `Descripcion: ${income.description || ''}`,
       `Estado: ${this.statusLabel(income.status)}`,
+      `Causacion: ${income.causedAt ? 'Causado' : 'Pendiente'}`,
       income.status === RecordStatus.VOID ? `Anulado: ${income.voidReason || 'Sin motivo'}` : '',
     ].filter(Boolean);
     return buildSimplePdf('Soporte de ingreso', lines);
@@ -176,7 +206,7 @@ export class IncomesService {
           { description: { contains: query.search } },
           { clientName: { contains: query.search } },
           { clientDocument: { contains: query.search } },
-          { city: { contains: query.search } },
+          { documentNumber: { contains: query.search } },
         ],
       });
     }
@@ -188,7 +218,6 @@ export class IncomesService {
     return {
       ...(and.length ? { AND: and } : {}),
       ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
-      ...(actor.role === UserRole.ADMIN && query.city ? { city: query.city } : {}),
       ...(query.clientId ? { clientId: query.clientId } : {}),
       ...(query.type ? { type: query.type } : {}),
       ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
@@ -197,21 +226,10 @@ export class IncomesService {
     };
   }
 
-  private resolveCity(actor: User, clientCity?: string | null, requested?: string) {
-    if (actor.role === UserRole.ADMIN) {
-      const city = requested?.trim() || clientCity || actor.city;
-      if (!city) throw new BadRequestException('La ciudad es obligatoria');
-      return city;
-    }
-
-    if (!actor.city) throw new BadRequestException('El usuario de bodega no tiene ciudad asignada');
-    return actor.city;
-  }
-
   private includeRelations() {
     return {
-      user: { select: { id: true, name: true, username: true, city: true, role: true } },
-      client: { select: { id: true, fullName: true, identityDocument: true, city: true, isGeneral: true } },
+      user: { select: { id: true, name: true, username: true, documentSuffix: true, role: true } },
+      client: { select: { id: true, fullName: true, identityDocument: true } },
       voidedBy: { select: { id: true, name: true, username: true } },
     };
   }

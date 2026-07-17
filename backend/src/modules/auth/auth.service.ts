@@ -103,7 +103,7 @@ export class AuthService {
       email: user.email,
       username: user.username,
       role: user.role,
-      city: user.city,
+      documentSuffix: user.documentSuffix,
       isActive: user.isActive,
       createdAt: user.createdAt,
     };
@@ -117,6 +117,7 @@ export class AuthService {
     const username = this.normalizeUsername(this.config.get<string>('ADMIN_USERNAME') || 'admin');
     const password = this.config.get<string>('ADMIN_PASSWORD') || 'admin12345';
     const name = this.config.get<string>('ADMIN_NAME') || 'Administrador';
+    const documentSuffix = this.config.get<string>('ADMIN_DOCUMENT_SUFFIX') || 'ADMIN';
     const email = `${username}@local.agroplastic`;
 
     const existing = await this.prisma.user.findUnique({ where: { username } });
@@ -131,6 +132,7 @@ export class AuthService {
           role: UserRole.ADMIN,
           isActive: true,
           passwordHash,
+          documentSuffix: existing.documentSuffix || documentSuffix,
           emailVerifiedAt: existing.emailVerifiedAt || new Date(),
         },
       });
@@ -149,6 +151,7 @@ export class AuthService {
         email,
         passwordHash,
         role: UserRole.ADMIN,
+        documentSuffix,
         emailVerifiedAt: new Date(),
       },
     });

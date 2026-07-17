@@ -8,15 +8,6 @@ export class QueryClientsDto extends PaginationDto {
   search?: string;
 
   @IsOptional()
-  @IsString()
-  city?: string;
-
-  @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
-  @IsBoolean()
-  isGeneral?: boolean;
-
-  @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   isActive?: boolean;

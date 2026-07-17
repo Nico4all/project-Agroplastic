@@ -21,24 +21,21 @@ export function DashboardPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [userId, setUserId] = useState('');
-  const [city, setCity] = useState('');
   const isAdmin = user?.role === 'ADMIN';
 
   const params = useMemo(
-    () => Object.fromEntries(Object.entries({ fromDate, toDate, userId, city }).filter(([, value]) => value !== '')),
-    [fromDate, toDate, userId, city],
+    () => Object.fromEntries(Object.entries({ fromDate, toDate, userId }).filter(([, value]) => value !== '')),
+    [fromDate, toDate, userId],
   );
 
   const { data, isLoading } = useQuery({ queryKey: ['dashboard', params], queryFn: () => dashboardApi.get(params) });
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
-  const cities = Array.from(new Set(users.map((item) => item.city).filter(Boolean))) as string[];
   const expensesByUser = data?.expensesByUser || [];
 
   const clearFilters = () => {
     setFromDate('');
     setToDate('');
     setUserId('');
-    setCity('');
   };
 
   if (isLoading || !data) return <Spinner />;
@@ -68,16 +65,6 @@ export function DashboardPage() {
                   {users.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Ciudad">
-                <Select value={city} onChange={(event) => setCity(event.target.value)}>
-                  <option value="">Todas</option>
-                  {cities.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
                     </option>
                   ))}
                 </Select>
@@ -146,7 +133,7 @@ export function DashboardPage() {
                 <div key={group.user.id}>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="font-semibold">{group.user.name}</p>
-                    <span className="text-xs text-mute">{group.user.city || group.user.username}</span>
+                    <span className="text-xs text-mute">{group.user.documentSuffix || group.user.username}</span>
                   </div>
                   <ul className="divide-y divide-line">
                     {group.items.map((item: any) => (
@@ -177,7 +164,7 @@ export function DashboardPage() {
                 <div key={group.user.id}>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="font-semibold">{group.user.name}</p>
-                    <span className="text-xs text-mute">{group.user.city || group.user.username}</span>
+                    <span className="text-xs text-mute">{group.user.documentSuffix || group.user.username}</span>
                   </div>
                   <ul className="divide-y divide-line">
                     {group.items.map((item: any) => (

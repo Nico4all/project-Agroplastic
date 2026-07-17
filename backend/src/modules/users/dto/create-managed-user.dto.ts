@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateManagedUserDto {
   @IsString()
@@ -16,8 +16,8 @@ export class CreateManagedUserDto {
   @MaxLength(100)
   name: string;
 
-  @IsOptional()
   @IsString()
-  @MaxLength(100)
-  city?: string;
+  @MinLength(1)
+  @MaxLength(50)
+  documentSuffix: string;
 }

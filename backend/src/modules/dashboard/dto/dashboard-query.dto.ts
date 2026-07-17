@@ -13,7 +13,4 @@ export class DashboardQueryDto {
   @IsString()
   userId?: string;
 
-  @IsOptional()
-  @IsString()
-  city?: string;
 }

@@ -55,7 +55,7 @@ export class DashboardService {
     });
     const users = await this.prisma.user.findMany({
       where: { id: { in: rows.map((row) => row.userId) } },
-      select: { id: true, name: true, username: true, city: true },
+      select: { id: true, name: true, username: true, documentSuffix: true },
     });
     return rows
       .map((row) => {
@@ -64,14 +64,14 @@ export class DashboardService {
           userId: row.userId,
           name: user?.name || 'Usuario',
           username: user?.username || '',
-          city: user?.city || '',
+          documentSuffix: user?.documentSuffix || '',
           value: decimalToNumber(row._sum.amount),
         };
       })
       .sort((a, b) => b.value - a.value);
   }
 
-  private async getRecentExpensesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'city'>>, where: Prisma.ExpenseWhereInput) {
+  private async getRecentExpensesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'documentSuffix'>>, where: Prisma.ExpenseWhereInput) {
     const groups = await Promise.all(
       users.map(async (user) => {
         const items = await this.prisma.expense.findMany({
@@ -85,7 +85,7 @@ export class DashboardService {
           items: items.map((item) => ({
             id: item.id,
             date: item.expenseDate,
-            city: item.city,
+            documentNumber: item.documentNumber,
             category: item.category.name,
             paidTo: item.paidTo,
             status: item.status,
@@ -97,7 +97,7 @@ export class DashboardService {
     return groups.filter((group) => group.items.length);
   }
 
-  private async getRecentIncomesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'city'>>, where: Prisma.IncomeWhereInput) {
+  private async getRecentIncomesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'documentSuffix'>>, where: Prisma.IncomeWhereInput) {
     const groups = await Promise.all(
       users.map(async (user) => {
         const items = await this.prisma.income.findMany({
@@ -110,7 +110,7 @@ export class DashboardService {
           items: items.map((item) => ({
             id: item.id,
             date: item.incomeDate,
-            city: item.city,
+            documentNumber: item.documentNumber,
             clientName: item.clientName,
             clientDocument: item.clientDocument,
             type: item.type,
@@ -126,15 +126,14 @@ export class DashboardService {
 
   private async relevantUsers(actor: User, query: DashboardQueryDto) {
     if (actor.role !== UserRole.ADMIN) {
-      return [{ id: actor.id, name: actor.name, username: actor.username, city: actor.city }];
+      return [{ id: actor.id, name: actor.name, username: actor.username, documentSuffix: actor.documentSuffix }];
     }
     return this.prisma.user.findMany({
       where: {
         role: UserRole.BODEGA,
         ...(query.userId ? { id: query.userId } : {}),
-        ...(query.city ? { city: query.city } : {}),
       },
-      select: { id: true, name: true, username: true, city: true },
+      select: { id: true, name: true, username: true, documentSuffix: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -151,7 +150,6 @@ export class DashboardService {
       incomeDate: { gte: range.from, lte: range.to },
       ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }),
       ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
-      ...(actor.role === UserRole.ADMIN && query.city ? { city: query.city } : {}),
     };
   }
 
@@ -160,7 +158,6 @@ export class DashboardService {
       expenseDate: { gte: range.from, lte: range.to },
       ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }),
       ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
-      ...(actor.role === UserRole.ADMIN && query.city ? { city: query.city } : {}),
     };
   }
 

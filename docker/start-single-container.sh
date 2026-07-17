@@ -56,6 +56,7 @@ FLUSH PRIVILEGES;
 SQL
 
 ./node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma
+node /app/prisma/seed.js
 
 su -s /bin/sh node -c "node /app/dist/main.js" &
 APP_PID=$!

@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Download, FileText, Plus, Search } from 'lucide-react';
+import { Ban, CheckCircle2, Download, FileText, Plus, Search } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, incomesApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { CashIncome, IncomeType, PaymentMethod, RecordStatus } from '../types';
-import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, Select, Spinner, useToast } from '../ui/components';
+import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 import { downloadBlob, openBlob } from '../utils/download';
 
@@ -29,7 +29,6 @@ type IncomeForm = {
   paymentMethod: PaymentMethod;
   amount: string;
   incomeDate: string;
-  city: string;
   description: string;
 };
 
@@ -39,7 +38,6 @@ const emptyForm: IncomeForm = {
   paymentMethod: 'CASH',
   amount: '',
   incomeDate: dateInput(),
-  city: '',
   description: '',
 };
 
@@ -55,9 +53,9 @@ export function IncomesPage() {
   const toast = useToast();
   const isAdmin = user?.role === 'ADMIN';
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', city: '', type: '', paymentMethod: '', status: '', search: '' });
+  const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', type: '', paymentMethod: '', status: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<IncomeForm>({ ...emptyForm, city: user?.city || '' });
+  const [form, setForm] = useState<IncomeForm>(emptyForm);
   const [voiding, setVoiding] = useState<CashIncome | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [formError, setFormError] = useState('');
@@ -68,10 +66,13 @@ export function IncomesPage() {
   );
 
   const { data, isLoading } = useQuery({ queryKey: ['incomes', params], queryFn: () => incomesApi.list(params) });
-  const { data: clientsData } = useQuery({ queryKey: ['clients', 'income-form'], queryFn: () => clientsApi.list({ pageSize: 100, isActive: true }) });
+  const { data: clientsData } = useQuery({ queryKey: ['clients', 'income-form'], queryFn: () => clientsApi.list({ pageSize: 2000, isActive: true }) });
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
-  const cities = Array.from(new Set(users.map((item) => item.city).filter(Boolean))) as string[];
   const clients = clientsData?.data || [];
+  const clientOptions = clients.map((client) => ({
+    value: client.id,
+    label: `${client.fullName} - ${client.identityDocument}`,
+  }));
 
   const create = useMutation({
     mutationFn: incomesApi.create,
@@ -96,13 +97,22 @@ export function IncomesPage() {
     onError: () => toast('No se pudo anular el ingreso', 'error'),
   });
 
+  const causedMutation = useMutation({
+    mutationFn: ({ id, isCaused }: { id: string; isCaused: boolean }) => incomesApi.setCaused(id, isCaused),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['incomes'] });
+      toast(variables.isCaused ? 'Ingreso marcado como causado' : 'Causacion retirada');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo cambiar la causacion'), 'error'),
+  });
+
   const setFilter = (key: keyof typeof filters, value: string) => {
     setPage(1);
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
   const openCreate = () => {
-    setForm({ ...emptyForm, incomeDate: dateInput(), city: user?.city || '' });
+    setForm({ ...emptyForm, incomeDate: dateInput() });
     setFormError('');
     setModalOpen(true);
   };
@@ -110,13 +120,16 @@ export function IncomesPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     setFormError('');
+    if (!form.clientId) {
+      setFormError('Selecciona un cliente');
+      return;
+    }
     await create.mutateAsync({
       clientId: form.clientId,
       type: form.type,
       paymentMethod: form.paymentMethod,
       amount: Number(form.amount),
       incomeDate: form.incomeDate,
-      city: form.city,
       description: form.description,
     });
   }
@@ -197,19 +210,11 @@ export function IncomesPage() {
                   ))}
                 </Select>
               </Field>
-              <Field label="Ciudad">
-                <Select value={filters.city} onChange={(event) => setFilter('city', event.target.value)}>
-                  <option value="">Todas</option>
-                  {cities.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </Select>
-              </Field>
             </>
           )}
           <Field label="Buscar">
             <div className="relative">
-              <Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Cliente, documento o descripcion" className="pl-9" />
+              <Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Id, cliente, documento o descripcion" className="pl-9" />
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" />
             </div>
           </Field>
@@ -232,16 +237,17 @@ export function IncomesPage() {
       ) : data.data.length ? (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[1120px] text-sm">
               <thead className="bg-paper text-left text-xs uppercase text-mute">
                 <tr>
+                  <th className="px-4 py-3">Id documento</th>
                   <th className="px-4 py-3">Fecha</th>
                   <th className="px-4 py-3">Cliente</th>
-                  <th className="px-4 py-3">Ciudad</th>
                   <th className="px-4 py-3">Tipo</th>
                   <th className="px-4 py-3">Ingreso</th>
                   <th className="px-4 py-3">Valor</th>
                   <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3">Causacion</th>
                   <th className="px-4 py-3">Usuario</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
@@ -249,21 +255,34 @@ export function IncomesPage() {
               <tbody className="divide-y divide-line">
                 {data.data.map((item) => (
                   <tr key={item.id} className={item.status === 'VOID' ? 'bg-expense-soft/25' : ''}>
+                    <td className="px-4 py-3 font-mono font-semibold">{item.documentNumber}</td>
                     <td className="px-4 py-3">{dateInput(item.incomeDate)}</td>
                     <td className="px-4 py-3">
                       <p className="font-semibold">{item.clientName}</p>
                       <p className="text-xs text-mute">{item.clientDocument}</p>
                     </td>
-                    <td className="px-4 py-3">{item.city}</td>
                     <td className="px-4 py-3">{incomeTypeLabels[item.type]}</td>
                     <td className="px-4 py-3">{paymentMethodLabels[item.paymentMethod]}</td>
                     <td className={`money px-4 py-3 font-bold ${item.status === 'VOID' ? 'text-mute line-through' : 'text-brand-dark'}`}>{money(item.amount)}</td>
                     <td className="px-4 py-3">
                       <Badge tone={item.status === 'ACTIVE' ? 'income' : 'expense'}>{statusLabels[item.status]}</Badge>
                     </td>
+                    <td className="px-4 py-3">
+                      <Badge tone={item.causedAt ? 'income' : 'neutral'}>{item.causedAt ? 'Causado' : 'Pendiente'}</Badge>
+                    </td>
                     <td className="px-4 py-3">{item.user?.name || '-'}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
+                        {isAdmin && item.status === 'ACTIVE' && (
+                          <Button
+                            variant={item.causedAt ? 'secondary' : 'primary'}
+                            className="px-2 py-1.5"
+                            disabled={causedMutation.isPending}
+                            onClick={() => causedMutation.mutate({ id: item.id, isCaused: !item.causedAt })}
+                          >
+                            <CheckCircle2 className="h-4 w-4" /> {item.causedAt ? 'Desmarcar' : 'Causar'}
+                          </Button>
+                        )}
                         <Button variant="ghost" className="px-2" title="Ver PDF" onClick={() => openReceipt(item.id)}>
                           <FileText className="h-4 w-4" />
                         </Button>
@@ -289,15 +308,14 @@ export function IncomesPage() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo ingreso">
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Cliente">
-            <Select required value={form.clientId} onChange={(event) => setForm({ ...form, clientId: event.target.value })}>
-              <option value="">Selecciona cliente</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.fullName} - {client.identityDocument}
-                </option>
-              ))}
-            </Select>
+          <Field label="Cliente" hint="Escribe el nombre o documento; deja el campo vacio para ver todos.">
+            <SearchableSelect
+              value={form.clientId}
+              onChange={(clientId) => setForm({ ...form, clientId })}
+              options={clientOptions}
+              placeholder="Buscar cliente por nombre o documento"
+              emptyMessage="No se encontraron clientes"
+            />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Tipo">
@@ -319,11 +337,6 @@ export function IncomesPage() {
               <Input required type="date" value={form.incomeDate} onChange={(event) => setForm({ ...form, incomeDate: event.target.value })} />
             </Field>
           </div>
-          {isAdmin && (
-            <Field label="Ciudad">
-              <Input required value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} />
-            </Field>
-          )}
           <Field label="Descripcion">
             <Input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
           </Field>

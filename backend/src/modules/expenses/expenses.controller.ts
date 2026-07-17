@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { QueryExpensesDto } from './dto/query-expenses.dto';
+import { UpdateCausedStatusDto } from './dto/update-caused-status.dto';
 import { VoidExpenseDto } from './dto/void-expense.dto';
 import { ExpensesService } from './expenses.service';
 
@@ -50,5 +51,15 @@ export class ExpensesController {
   @HttpCode(200)
   void(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Body() dto: VoidExpenseDto) {
     return this.expenses.void(user.userId, id, dto);
+  }
+
+  @Patch(':id/caused')
+  @HttpCode(200)
+  updateCausedStatus(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateCausedStatusDto,
+  ) {
+    return this.expenses.updateCausedStatus(user.userId, id, dto.isCaused);
   }
 }

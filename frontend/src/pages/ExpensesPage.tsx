@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Download, FileText, Plus, Search } from 'lucide-react';
+import { Ban, CheckCircle2, Download, FileText, Plus, Search } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { expenseCategoriesApi, expensesApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
@@ -18,7 +18,6 @@ type ExpenseForm = {
   paidTo: string;
   amount: string;
   expenseDate: string;
-  city: string;
   approvedBy: string;
   description: string;
 };
@@ -28,7 +27,6 @@ const emptyForm: ExpenseForm = {
   paidTo: '',
   amount: '',
   expenseDate: dateInput(),
-  city: '',
   approvedBy: '',
   description: '',
 };
@@ -45,9 +43,9 @@ export function ExpensesPage() {
   const toast = useToast();
   const isAdmin = user?.role === 'ADMIN';
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', city: '', categoryId: '', status: '', search: '' });
+  const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', categoryId: '', status: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<ExpenseForm>({ ...emptyForm, city: user?.city || '', approvedBy: user?.name || '' });
+  const [form, setForm] = useState<ExpenseForm>({ ...emptyForm, approvedBy: user?.name || '' });
   const [voiding, setVoiding] = useState<CashExpense | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [formError, setFormError] = useState('');
@@ -60,7 +58,6 @@ export function ExpensesPage() {
   const { data, isLoading } = useQuery({ queryKey: ['expenses', params], queryFn: () => expensesApi.list(params) });
   const { data: categories = [] } = useQuery({ queryKey: ['expense-categories'], queryFn: expenseCategoriesApi.list });
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
-  const cities = Array.from(new Set(users.map((item) => item.city).filter(Boolean))) as string[];
   const activeCategories = categories.filter((category) => category.isActive);
 
   const create = useMutation({
@@ -86,13 +83,22 @@ export function ExpensesPage() {
     onError: () => toast('No se pudo anular el egreso', 'error'),
   });
 
+  const causedMutation = useMutation({
+    mutationFn: ({ id, isCaused }: { id: string; isCaused: boolean }) => expensesApi.setCaused(id, isCaused),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      toast(variables.isCaused ? 'Egreso marcado como causado' : 'Causacion retirada');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo cambiar la causacion'), 'error'),
+  });
+
   const setFilter = (key: keyof typeof filters, value: string) => {
     setPage(1);
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
   const openCreate = () => {
-    setForm({ ...emptyForm, expenseDate: dateInput(), city: user?.city || '', approvedBy: user?.name || '' });
+    setForm({ ...emptyForm, expenseDate: dateInput(), approvedBy: user?.name || '' });
     setFormError('');
     setModalOpen(true);
   };
@@ -105,7 +111,6 @@ export function ExpensesPage() {
       paidTo: form.paidTo,
       amount: Number(form.amount),
       expenseDate: form.expenseDate,
-      city: form.city,
       approvedBy: form.approvedBy,
       description: form.description,
     });
@@ -181,19 +186,11 @@ export function ExpensesPage() {
                   ))}
                 </Select>
               </Field>
-              <Field label="Ciudad">
-                <Select value={filters.city} onChange={(event) => setFilter('city', event.target.value)}>
-                  <option value="">Todas</option>
-                  {cities.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </Select>
-              </Field>
             </>
           )}
           <Field label="Buscar">
             <div className="relative">
-              <Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Pagado a o descripcion" className="pl-9" />
+              <Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Id, pagado a o descripcion" className="pl-9" />
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" />
             </div>
           </Field>
@@ -216,15 +213,16 @@ export function ExpensesPage() {
       ) : data.data.length ? (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[940px] text-sm">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead className="bg-paper text-left text-xs uppercase text-mute">
                 <tr>
+                  <th className="px-4 py-3">Id documento</th>
                   <th className="px-4 py-3">Fecha</th>
                   <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3">Pagado a</th>
-                  <th className="px-4 py-3">Ciudad</th>
                   <th className="px-4 py-3">Valor</th>
                   <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3">Causacion</th>
                   <th className="px-4 py-3">Usuario</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
@@ -232,20 +230,33 @@ export function ExpensesPage() {
               <tbody className="divide-y divide-line">
                 {data.data.map((item) => (
                   <tr key={item.id} className={item.status === 'VOID' ? 'bg-expense-soft/25' : ''}>
+                    <td className="px-4 py-3 font-mono font-semibold">{item.documentNumber}</td>
                     <td className="px-4 py-3">{dateInput(item.expenseDate)}</td>
                     <td className="px-4 py-3">{item.category?.name || '-'}</td>
                     <td className="px-4 py-3">
                       <p className="font-semibold">{item.paidTo}</p>
                       {item.description && <p className="truncate text-xs text-mute">{item.description}</p>}
                     </td>
-                    <td className="px-4 py-3">{item.city}</td>
                     <td className={`money px-4 py-3 font-bold ${item.status === 'VOID' ? 'text-mute line-through' : 'text-expense'}`}>{money(item.amount)}</td>
                     <td className="px-4 py-3">
                       <Badge tone={item.status === 'ACTIVE' ? 'income' : 'expense'}>{statusLabels[item.status]}</Badge>
                     </td>
+                    <td className="px-4 py-3">
+                      <Badge tone={item.causedAt ? 'income' : 'neutral'}>{item.causedAt ? 'Causado' : 'Pendiente'}</Badge>
+                    </td>
                     <td className="px-4 py-3">{item.user?.name || '-'}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
+                        {isAdmin && item.status === 'ACTIVE' && (
+                          <Button
+                            variant={item.causedAt ? 'secondary' : 'primary'}
+                            className="px-2 py-1.5"
+                            disabled={causedMutation.isPending}
+                            onClick={() => causedMutation.mutate({ id: item.id, isCaused: !item.causedAt })}
+                          >
+                            <CheckCircle2 className="h-4 w-4" /> {item.causedAt ? 'Desmarcar' : 'Causar'}
+                          </Button>
+                        )}
                         <Button variant="ghost" className="px-2" title="Ver PDF" onClick={() => openReceipt(item.id)}>
                           <FileText className="h-4 w-4" />
                         </Button>
@@ -290,11 +301,6 @@ export function ExpensesPage() {
               <Input required type="date" value={form.expenseDate} onChange={(event) => setForm({ ...form, expenseDate: event.target.value })} />
             </Field>
           </div>
-          {isAdmin && (
-            <Field label="Ciudad">
-              <Input required value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} />
-            </Field>
-          )}
           <Field label="Aprobado por">
             <Input maxLength={120} value={form.approvedBy} onChange={(event) => setForm({ ...form, approvedBy: event.target.value })} />
           </Field>

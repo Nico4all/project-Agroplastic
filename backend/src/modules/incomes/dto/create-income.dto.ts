@@ -22,11 +22,6 @@ export class CreateIncomeDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  city?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(191)
   description?: string;
 }

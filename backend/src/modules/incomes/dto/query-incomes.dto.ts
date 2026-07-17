@@ -17,10 +17,6 @@ export class QueryIncomesDto extends PaginationDto {
 
   @IsOptional()
   @IsString()
-  city?: string;
-
-  @IsOptional()
-  @IsString()
   clientId?: string;
 
   @IsOptional()

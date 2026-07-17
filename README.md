@@ -1,6 +1,6 @@
 # Caja Bodega Monolith
 
-Aplicacion web para registrar ingresos por anticipos/pagos de cartera y egresos de caja menor por usuarios de bodega, con administracion central.
+Aplicacion web para registrar ingresos, egresos y pedidos sin inventario por usuarios de bodega, con administracion central de clientes y productos.
 
 ## Stack
 
@@ -46,7 +46,14 @@ El primer login crea el administrador inicial si no existe:
 ```bash
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin12345
+ADMIN_DOCUMENT_SUFFIX=ADMIN
 MAX_WAREHOUSE_USERS=4
+```
+
+Para cargar los clientes y productos iniciales incluidos en los seeders:
+
+```bash
+npm run prisma:seed --prefix backend
 ```
 
 ## Produccion monolitica

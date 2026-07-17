@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateClientDto {
   @IsString()
@@ -11,12 +11,4 @@ export class CreateClientDto {
   @MaxLength(40)
   identityDocument: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  city?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isGeneral?: boolean;
 }

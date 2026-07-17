@@ -17,10 +17,6 @@ export class QueryExpensesDto extends PaginationDto {
 
   @IsOptional()
   @IsString()
-  city?: string;
-
-  @IsOptional()
-  @IsString()
   categoryId?: string;
 
   @IsOptional()

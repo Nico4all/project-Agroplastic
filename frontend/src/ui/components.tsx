@@ -1,7 +1,9 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Inbox,
+  Search,
   X,
 } from 'lucide-react';
 import {
@@ -13,6 +15,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -56,6 +60,145 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={`input ${props.className ?? ''}`} />;
+}
+
+export type SearchableSelectOption = {
+  value: string;
+  label: string;
+  searchText?: string;
+};
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es-CO')
+    .trim();
+}
+
+export function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = 'Escribe para buscar',
+  emptyMessage = 'Sin coincidencias',
+  disabled = false,
+}: {
+  options: SearchableSelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  emptyMessage?: string;
+  disabled?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selected = options.find((option) => option.value === value);
+  const [query, setQuery] = useState(selected?.label ?? '');
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setQuery(selected?.label ?? '');
+  }, [selected?.label, value]);
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
+  const filteredOptions = useMemo(() => {
+    const selectedLabel = selected?.label ?? '';
+    const effectiveQuery = query === selectedLabel ? '' : normalizeSearch(query);
+    if (!effectiveQuery) return options;
+    return options.filter((option) => normalizeSearch(`${option.label} ${option.searchText ?? ''}`).includes(effectiveQuery));
+  }, [options, query, selected?.label]);
+
+  const selectOption = (option: SearchableSelectOption) => {
+    onChange(option.value);
+    setQuery(option.label);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-mute" />
+      <input
+        ref={inputRef}
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        disabled={disabled}
+        value={query}
+        placeholder={placeholder}
+        className="input pl-9 pr-10"
+        onFocus={(event) => {
+          setOpen(true);
+          setActiveIndex(0);
+          event.currentTarget.select();
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          onChange('');
+          setOpen(true);
+          setActiveIndex(0);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((current) => Math.min(current + 1, filteredOptions.length - 1));
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setActiveIndex((current) => Math.max(current - 1, 0));
+          } else if (event.key === 'Enter' && open && filteredOptions[activeIndex]) {
+            event.preventDefault();
+            selectOption(filteredOptions[activeIndex]);
+          } else if (event.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Mostrar opciones"
+        disabled={disabled}
+        className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-2 text-mute hover:bg-paper"
+        onClick={() => {
+          setOpen((current) => !current);
+          inputRef.current?.focus();
+        }}
+      >
+        <ChevronDown className="h-4 w-4" />
+      </button>
+
+      {open && !disabled && (
+        <div role="listbox" className="absolute z-40 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-xl">
+          {filteredOptions.length ? filteredOptions.map((option, index) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={`block w-full rounded-md px-3 py-2 text-left text-sm transition ${index === activeIndex ? 'bg-brand-soft text-brand-dark' : 'hover:bg-paper'} ${option.value === value ? 'font-semibold' : ''}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectOption(option)}
+            >
+              {option.label}
+            </button>
+          )) : (
+            <p className="px-3 py-3 text-sm text-mute">{emptyMessage}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Card({ className = '', children }: { className?: string; children: ReactNode }) {
@@ -136,6 +279,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel = 'Eliminar',
+  busyLabel = 'Procesando...',
   onConfirm,
   onCancel,
   busy,
@@ -144,6 +288,7 @@ export function ConfirmDialog({
   title: string;
   message: string;
   confirmLabel?: string;
+  busyLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
@@ -158,7 +303,7 @@ export function ConfirmDialog({
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
-        <Button variant="danger" onClick={onConfirm} disabled={busy}>{busy ? 'Eliminando...' : confirmLabel}</Button>
+        <Button variant="danger" onClick={onConfirm} disabled={busy}>{busy ? busyLabel : confirmLabel}</Button>
       </div>
     </Modal>
   );
