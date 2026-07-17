@@ -5,7 +5,7 @@ import { UsersService } from '../users/users.service';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto';
 
-const DEFAULT_EXPENSE_CATEGORIES = ['Desaargue', 'Papeleria', 'Transporte', 'Aux de bodega'];
+const DEFAULT_EXPENSE_CATEGORIES = ['Descargue', 'Papeleria', 'Transporte', 'Aux de bodega'];
 
 @Injectable()
 export class ExpenseCategoriesService {

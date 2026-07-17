@@ -58,7 +58,7 @@ export function CategoriesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Categorias de gasto</h1>
-          <p className="text-sm text-mute">Desaargue, Papeleria, Transporte, Aux de bodega y las que necesite la operacion.</p>
+          <p className="text-sm text-mute">Descargue, Papeleria, Transporte, Aux de bodega y las que necesite la operacion.</p>
         </div>
         {isAdmin && (
           <Button onClick={openCreate}>

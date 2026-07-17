@@ -103,7 +103,7 @@ ALTER TABLE `expenses` ADD CONSTRAINT `expenses_category_id_fkey` FOREIGN KEY (`
 ALTER TABLE `expenses` ADD CONSTRAINT `expenses_voided_by_user_id_fkey` FOREIGN KEY (`voided_by_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 INSERT IGNORE INTO `expense_categories` (`id`, `name`, `is_active`, `created_at`, `updated_at`) VALUES
-  (UUID(), 'Desaargue', true, NOW(3), NOW(3)),
+  (UUID(), 'Descargue', true, NOW(3), NOW(3)),
   (UUID(), 'Papeleria', true, NOW(3), NOW(3)),
   (UUID(), 'Transporte', true, NOW(3), NOW(3)),
   (UUID(), 'Aux de bodega', true, NOW(3), NOW(3));
