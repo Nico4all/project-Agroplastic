@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, RecordStatus, User, UserRole } from '@prisma/client';
 import { decimalToNumber } from '../../common/helpers/money';
-import { buildExcelHtml, buildSimplePdf, formatDate, formatMoney } from '../../common/helpers/reports';
+import { buildCashReceiptPdf, buildExcelHtml, buildListPdf, formatDate, formatMoney } from '../../common/helpers/reports';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -148,34 +148,58 @@ export class IncomesService {
     const total = rows
       .filter((row) => row.status === RecordStatus.ACTIVE)
       .reduce((sum, row) => sum + decimalToNumber(row.amount), 0);
-    const lines = [
-      `Total activo: ${formatMoney(total)}`,
-      `Registros: ${rows.length}`,
-      '',
-      ...rows.slice(0, 42).map((row) =>
-        `${row.documentNumber} | ${formatDate(row.incomeDate)} | ${row.user.name} | ${row.clientName} | ${this.incomeTypeLabel(row.type)} | ${formatMoney(decimalToNumber(row.amount))} | ${this.statusLabel(row.status)} | ${row.causedAt ? 'Causado' : 'Pendiente'}`,
-      ),
-    ];
-    return buildSimplePdf('Listado de ingresos', lines);
+    return buildListPdf(
+      'Listado de ingresos',
+      [
+        { label: 'Total activo', value: formatMoney(total) },
+        { label: 'Registros', value: String(rows.length) },
+      ],
+      [
+        { label: 'Id', width: 66 },
+        { label: 'Fecha', width: 62 },
+        { label: 'Usuario', width: 92 },
+        { label: 'Cliente', width: 133 },
+        { label: 'Tipo', width: 92 },
+        { label: 'Ingreso', width: 75 },
+        { label: 'Valor', width: 96, align: 'right' },
+        { label: 'Estado', width: 72, align: 'center' },
+        { label: 'Causacion', width: 80, align: 'center' },
+      ],
+      rows.map((row) => [
+        row.documentNumber,
+        formatDate(row.incomeDate),
+        row.user.name,
+        row.clientName,
+        this.incomeTypeLabel(row.type),
+        this.paymentMethodLabel(row.paymentMethod),
+        formatMoney(decimalToNumber(row.amount)),
+        this.statusLabel(row.status),
+        row.causedAt ? 'Causado' : 'Pendiente',
+      ]),
+    );
   }
 
   async receiptPdf(userId: string, id: string) {
     const actor = await this.users.getActiveUser(userId);
     const income = await this.findAccessible(actor, id);
-    const lines = [
-      `Fecha: ${formatDate(income.incomeDate)}`,
-      `No - Id: ${income.documentNumber}`,
-      `Cliente: ${income.clientName}`,
-      `Documento: ${income.clientDocument}`,
-      `Tipo: ${this.incomeTypeLabel(income.type)}`,
-      `Ingreso: ${this.paymentMethodLabel(income.paymentMethod)}`,
-      `Valor: ${formatMoney(decimalToNumber(income.amount))}`,
-      `Descripcion: ${income.description || ''}`,
-      `Estado: ${this.statusLabel(income.status)}`,
-      `Causacion: ${income.causedAt ? 'Causado' : 'Pendiente'}`,
-      income.status === RecordStatus.VOID ? `Anulado: ${income.voidReason || 'Sin motivo'}` : '',
-    ].filter(Boolean);
-    return buildSimplePdf('Soporte de ingreso', lines);
+    return buildCashReceiptPdf({
+      kind: 'income',
+      number: income.documentNumber,
+      date: formatDate(income.incomeDate),
+      partyLabel: 'Recibimos de',
+      party: income.clientName,
+      document: income.clientDocument,
+      amount: decimalToNumber(income.amount),
+      concept: income.description || this.incomeTypeLabel(income.type),
+      details: [
+        { label: 'Tipo', value: this.incomeTypeLabel(income.type) },
+        { label: 'Causacion', value: income.causedAt ? 'Causado' : 'Pendiente' },
+      ],
+      paymentMethod: this.paymentMethodLabel(income.paymentMethod),
+      preparedBy: income.user.name,
+      status: this.statusLabel(income.status),
+      voidReason: income.status === RecordStatus.VOID ? income.voidReason || 'Sin motivo' : undefined,
+    });
   }
 
   private async findAccessible(actor: User, id: string) {

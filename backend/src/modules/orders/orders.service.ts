@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, User, UserRole } from '@prisma/client';
 import { decimalToNumber } from '../../common/helpers/money';
+import { buildOrderTicketPdf, formatDate } from '../../common/helpers/reports';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -105,6 +106,35 @@ export class OrdersService {
       include: this.includeRelations(),
     });
     return this.serialize(updated);
+  }
+
+  async ticketPdf(userId: string, id: string) {
+    const actor = await this.users.getActiveUser(userId);
+    const order = await this.findAccessible(actor, id);
+    return buildOrderTicketPdf({
+      number: order.documentNumber,
+      date: formatDate(order.createdAt),
+      clientName: order.clientName,
+      clientDocument: order.clientDocument,
+      userName: order.user.name,
+      invoiced: Boolean(order.invoicedAt),
+      items: order.items.map((item) => ({
+        description: item.productDescription,
+        quantity: decimalToNumber(item.quantity),
+        unitPrice: decimalToNumber(item.unitPrice),
+        lineTotal: decimalToNumber(item.lineTotal),
+      })),
+      total: decimalToNumber(order.totalAmount),
+    });
+  }
+
+  private async findAccessible(actor: User, id: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id, ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }) },
+      include: this.includeRelations(),
+    });
+    if (!order) throw new NotFoundException('Pedido no encontrado');
+    return order;
   }
 
   private buildWhere(actor: User, query: QueryOrdersDto): Prisma.OrderWhereInput {

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, RecordStatus, User, UserRole } from '@prisma/client';
 import { decimalToNumber } from '../../common/helpers/money';
-import { buildExcelHtml, buildSimplePdf, formatDate, formatMoney } from '../../common/helpers/reports';
+import { buildCashReceiptPdf, buildExcelHtml, buildListPdf, formatDate, formatMoney } from '../../common/helpers/reports';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -143,33 +143,57 @@ export class ExpensesService {
     const total = rows
       .filter((row) => row.status === RecordStatus.ACTIVE)
       .reduce((sum, row) => sum + decimalToNumber(row.amount), 0);
-    const lines = [
-      `Total activo: ${formatMoney(total)}`,
-      `Registros: ${rows.length}`,
-      '',
-      ...rows.slice(0, 42).map((row) =>
-        `${row.documentNumber} | ${formatDate(row.expenseDate)} | ${row.user.name} | ${row.category.name} | ${row.paidTo} | ${formatMoney(decimalToNumber(row.amount))} | ${this.statusLabel(row.status)} | ${row.causedAt ? 'Causado' : 'Pendiente'}`,
-      ),
-    ];
-    return buildSimplePdf('Listado de egresos', lines);
+    return buildListPdf(
+      'Listado de egresos',
+      [
+        { label: 'Total activo', value: formatMoney(total) },
+        { label: 'Registros', value: String(rows.length) },
+      ],
+      [
+        { label: 'Id', width: 60 },
+        { label: 'Fecha', width: 58 },
+        { label: 'Usuario', width: 82 },
+        { label: 'Categoria', width: 100 },
+        { label: 'Pagado a', width: 122 },
+        { label: 'Valor', width: 92, align: 'right' },
+        { label: 'Estado', width: 65, align: 'center' },
+        { label: 'Causacion', width: 72, align: 'center' },
+        { label: 'Aprobado por', width: 90 },
+      ],
+      rows.map((row) => [
+        row.documentNumber,
+        formatDate(row.expenseDate),
+        row.user.name,
+        row.category.name,
+        row.paidTo,
+        formatMoney(decimalToNumber(row.amount)),
+        this.statusLabel(row.status),
+        row.causedAt ? 'Causado' : 'Pendiente',
+        row.approvedBy || '-',
+      ]),
+    );
   }
 
   async receiptPdf(userId: string, id: string) {
     const actor = await this.users.getActiveUser(userId);
     const expense = await this.findAccessible(actor, id);
-    const lines = [
-      `Fecha: ${formatDate(expense.expenseDate)}`,
-      `No - Id: ${expense.documentNumber}`,
-      `Pagado A: ${expense.paidTo}`,
-      `Valor: ${formatMoney(decimalToNumber(expense.amount))}`,
-      `Categoria: ${expense.category.name}`,
-      `Descripcion: ${expense.description || ''}`,
-      `Aprobado por: ${expense.approvedBy || expense.user.name}`,
-      `Estado: ${this.statusLabel(expense.status)}`,
-      `Causacion: ${expense.causedAt ? 'Causado' : 'Pendiente'}`,
-      expense.status === RecordStatus.VOID ? `Anulado: ${expense.voidReason || 'Sin motivo'}` : '',
-    ].filter(Boolean);
-    return buildSimplePdf('Recibo de caja menor', lines);
+    return buildCashReceiptPdf({
+      kind: 'expense',
+      number: expense.documentNumber,
+      date: formatDate(expense.expenseDate),
+      partyLabel: 'Pagado a',
+      party: expense.paidTo,
+      amount: decimalToNumber(expense.amount),
+      concept: expense.description || expense.category.name,
+      details: [
+        { label: 'Categoria', value: expense.category.name },
+        { label: 'Causacion', value: expense.causedAt ? 'Causado' : 'Pendiente' },
+      ],
+      preparedBy: expense.user.name,
+      approvedBy: expense.approvedBy || expense.user.name,
+      status: this.statusLabel(expense.status),
+      voidReason: expense.status === RecordStatus.VOID ? expense.voidReason || 'Sin motivo' : undefined,
+    });
   }
 
   private async findAccessible(actor: User, id: string) {

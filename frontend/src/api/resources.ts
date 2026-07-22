@@ -91,6 +91,7 @@ export const ordersApi = {
   create: async (payload: { clientId: string; items: Array<{ productId: string; quantity: number; unitPrice: number }> }) =>
     (await api.post<Order>('/orders', payload)).data,
   setInvoiced: async (id: string, isInvoiced: boolean) => (await api.patch<Order>(`/orders/${id}/invoiced`, { isInvoiced })).data,
+  ticketPdf: async (id: string) => (await api.get(`/orders/${id}/pdf`, { responseType: 'blob' })).data as Blob,
 };
 
 export const clientsApi = {

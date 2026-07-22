@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -19,6 +20,14 @@ export class OrdersController {
   @Post()
   create(@CurrentUser() user: { userId: string }, @Body() dto: CreateOrderDto) {
     return this.orders.create(user.userId, dto);
+  }
+
+  @Get(':id/pdf')
+  @Header('Content-Type', 'application/pdf')
+  async ticketPdf(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.orders.ticketPdf(user.userId, id);
+    res.header('Content-Disposition', `inline; filename="pedido-${id}.pdf"`);
+    res.send(pdf);
   }
 
   @Patch(':id/invoiced')

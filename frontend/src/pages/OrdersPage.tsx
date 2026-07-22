@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
+import { Eye, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, ordersApi, productsApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Order } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
+import { openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
 
 type OrderLineForm = { productId: string; quantity: string; unitPrice: string };
@@ -79,6 +80,14 @@ export function OrdersPage() {
   const updateLine = (index: number, patch: Partial<OrderLineForm>) => {
     setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
   };
+
+  async function openTicket(order: Order) {
+    try {
+      openBlob(await ordersApi.ticketPdf(order.id));
+    } catch {
+      toast('No se pudo abrir la tirilla del pedido', 'error');
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -173,6 +182,9 @@ export function OrdersPage() {
                       <div className="flex justify-end gap-2">
                         <Button variant="secondary" className="px-2 py-1.5" onClick={() => setViewingOrder(order)}>
                           <Eye className="h-4 w-4" /> Ver detalle
+                        </Button>
+                        <Button variant="secondary" className="px-2 py-1.5" onClick={() => openTicket(order)} title="Ver tirilla PDF">
+                          <FileText className="h-4 w-4" /> Ver tirilla
                         </Button>
                         {isAdmin && (
                           <Button
@@ -301,7 +313,10 @@ export function OrdersPage() {
 
             <div className="flex items-center justify-between gap-3">
               <Badge tone={viewingOrder.invoicedAt ? 'income' : 'neutral'}>{viewingOrder.invoicedAt ? 'Facturado' : 'Pendiente de facturacion'}</Badge>
-              <Button variant="secondary" onClick={() => setViewingOrder(null)}>Cerrar</Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => openTicket(viewingOrder)}><FileText className="h-4 w-4" /> Ver tirilla PDF</Button>
+                <Button variant="secondary" onClick={() => setViewingOrder(null)}>Cerrar</Button>
+              </div>
             </div>
           </div>
         )}
