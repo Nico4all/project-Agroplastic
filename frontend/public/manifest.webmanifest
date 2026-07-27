@@ -1,7 +1,7 @@
 {
-  "name": "Caja Bodega",
-  "short_name": "Caja Bodega",
-  "description": "Registro de ingresos, anticipos y egresos de bodega.",
+  "name": "AgroPlastick",
+  "short_name": "AgroPlastick",
+  "description": "Gestion de ingresos, egresos y pedidos de AgroPlastick.",
   "id": "/caja-bodega/",
   "start_url": "/caja-bodega/",
   "scope": "/caja-bodega/",
@@ -13,10 +13,10 @@
   "lang": "es-CO",
   "icons": [
     {
-      "src": "/caja-bodega/brand/caudalia-icon.png",
-      "sizes": "1024x1024",
+      "src": "/caja-bodega/brand/agroplastic-logo.png",
+      "sizes": "507x218",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
   "shortcuts": [
@@ -26,8 +26,8 @@
       "url": "/caja-bodega/",
       "icons": [
         {
-          "src": "/caja-bodega/brand/caudalia-icon.png",
-          "sizes": "1024x1024",
+          "src": "/caja-bodega/brand/agroplastic-logo.png",
+          "sizes": "507x218",
           "type": "image/png"
         }
       ]
@@ -38,8 +38,8 @@
       "url": "/caja-bodega/incomes",
       "icons": [
         {
-          "src": "/caja-bodega/brand/caudalia-icon.png",
-          "sizes": "1024x1024",
+          "src": "/caja-bodega/brand/agroplastic-logo.png",
+          "sizes": "507x218",
           "type": "image/png"
         }
       ]

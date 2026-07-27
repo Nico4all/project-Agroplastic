@@ -17,14 +17,12 @@ import { useAuth } from '../state/AuthContext';
 
 function Brand() {
   return (
-    <div className="flex items-center gap-3 px-2">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white shadow-card">
-        <img src={`${import.meta.env.BASE_URL}brand/caudalia-icon.png`} alt="Caja Bodega" className="h-10 w-10 object-contain" />
-      </div>
-      <div className="leading-tight">
-        <p className="text-base font-extrabold tracking-tight text-white">Caja Bodega</p>
-        <p className="text-[11px] text-white/50">Agroplastic</p>
-      </div>
+    <div className="flex w-[210px] items-center justify-center rounded-lg bg-white px-3 py-2 shadow-card">
+      <img
+        src={`${import.meta.env.BASE_URL}brand/agroplastic-logo.png`}
+        alt="AgroPlastick"
+        className="h-10 w-full object-contain"
+      />
     </div>
   );
 }
@@ -74,7 +72,7 @@ export function Layout() {
     navigate('/login');
   };
 
-  const initials = user?.name?.slice(0, 2).toUpperCase() || 'CB';
+  const initials = user?.name?.slice(0, 2).toUpperCase() || 'AP';
   const sidebarFooter = (
     <div className="border-t border-white/10 pt-3">
       <div className="flex items-center gap-3 px-2 py-2">

@@ -1,6 +1,6 @@
-const CACHE_NAME = 'caudalia-app-v1';
-const BASE_PATH = '/caudalia';
-const APP_SHELL = [`${BASE_PATH}/`, `${BASE_PATH}/manifest.webmanifest`, `${BASE_PATH}/brand/caudalia-icon.png`];
+const CACHE_NAME = 'agroplastick-app-v2';
+const BASE_PATH = '/caja-bodega';
+const APP_SHELL = [`${BASE_PATH}/`, `${BASE_PATH}/manifest.webmanifest`, `${BASE_PATH}/brand/agroplastic-logo.png`];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

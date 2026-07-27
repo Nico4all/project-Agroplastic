@@ -37,14 +37,12 @@ export function AuthPage() {
   return (
     <div className="grid min-h-screen bg-ink lg:grid-cols-[1fr_420px]">
       <section className="hidden min-h-screen flex-col justify-between p-10 text-white lg:flex">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg bg-white shadow-card">
-            <img src={`${import.meta.env.BASE_URL}brand/caudalia-icon.png`} alt="Caja Bodega" className="h-11 w-11 object-contain" />
-          </div>
-          <div>
-            <p className="text-lg font-extrabold">Caja Bodega</p>
-            <p className="text-sm text-white/55">Ingresos, anticipos y caja menor</p>
-          </div>
+        <div className="w-fit rounded-xl bg-white px-5 py-3 shadow-card">
+          <img
+            src={`${import.meta.env.BASE_URL}brand/agroplastic-logo.png`}
+            alt="AgroPlastick"
+            className="h-14 w-72 object-contain"
+          />
         </div>
 
         <div className="max-w-xl">
@@ -57,16 +55,18 @@ export function AuthPage() {
           </p>
         </div>
 
-        <p className="text-xs text-white/35">Agroplastic - Caja Bodega</p>
+        <p className="text-xs text-white/35">AgroPlastick - Empaques, amarres y proteccion para el agro</p>
       </section>
 
       <section className="flex min-h-screen items-center justify-center bg-paper px-4 py-8 lg:rounded-l-[2rem]">
         <div className="w-full max-w-md rounded-lg border border-line bg-surface p-6 shadow-card">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg bg-white shadow-card">
-              <img src={`${import.meta.env.BASE_URL}brand/caudalia-icon.png`} alt="Caja Bodega" className="h-11 w-11 object-contain" />
-            </div>
-            <div>
+          <div className="mb-6">
+            <img
+              src={`${import.meta.env.BASE_URL}brand/agroplastic-logo.png`}
+              alt="AgroPlastick"
+              className="mx-auto h-20 w-full max-w-xs object-contain"
+            />
+            <div className="mt-4 text-center">
               <p className="text-2xl font-extrabold tracking-tight">Iniciar sesion</p>
               <p className="text-sm text-mute">Ingresa con tu usuario asignado.</p>
             </div>
