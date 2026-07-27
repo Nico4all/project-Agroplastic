@@ -162,6 +162,10 @@ export type Order = {
   documentNumber: string;
   clientName: string;
   clientDocument: string;
+  deliveryAddress?: string | null;
+  clientPhone?: string | null;
+  paymentMethod?: PaymentMethod | null;
+  observations?: string | null;
   totalAmount: number;
   invoicedAt?: string | null;
   createdAt: string;

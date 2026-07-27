@@ -32,6 +32,10 @@ export type OrderTicketData = {
   date: string;
   clientName: string;
   clientDocument: string;
+  deliveryAddress: string;
+  clientPhone: string;
+  paymentMethod: string;
+  observations: string;
   userName: string;
   invoiced: boolean;
   items: Array<{
@@ -211,66 +215,173 @@ export async function buildListPdf(
 }
 
 export async function buildCashReceiptPdf(data: CashReceiptData) {
-  const { doc, done } = createDocument({ size: [595.28, 419.53], margin: 24, bufferPages: true });
-  const width = doc.page.width - 48;
-  const left = 24;
+  const pageWidth = 226.77;
+  const layout = measureCashReceipt(data, pageWidth);
+  const { doc, done } = createDocument({ size: [pageWidth, layout.pageHeight], margin: 0 });
+  const left = 16;
+  const width = pageWidth - 32;
   const receiptTitle = data.kind === 'income' ? 'RECIBO DE INGRESO' : 'RECIBO DE EGRESO';
   const partyAccent = data.kind === 'income' ? BRAND_GREEN : '#b7791f';
   const logo = getLogoBuffer();
 
-  doc.roundedRect(14, 14, doc.page.width - 28, doc.page.height - 28, 8).lineWidth(1).strokeColor('#9eaaa2').stroke();
-  if (logo) doc.image(logo, left, 24, { fit: [238, 61], valign: 'center' });
-  else doc.font('Helvetica-Bold').fontSize(25).fillColor(BRAND_GREEN).text('AgroPlastick', left, 37);
+  if (logo) doc.image(logo, left, 16, { fit: [width, 66], align: 'center', valign: 'center' });
+  else doc.font('Helvetica-Bold').fontSize(20).fillColor(BRAND_GREEN).text('AgroPlastick', left, 30, { width, align: 'center' });
+  let y = 91;
+  dashedLine(doc, y, left, pageWidth - left);
+  y += 12;
 
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(receiptTitle, 355, 30, { width: 190, align: 'right' });
-  doc.font('Helvetica-Bold').fontSize(19).fillColor(partyAccent).text(data.number, 355, 48, { width: 190, align: 'right' });
-  doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(`Fecha: ${data.date}`, 355, 72, { width: 190, align: 'right' });
-  doc.moveTo(left, 92).lineTo(left + width, 92).lineWidth(1.2).strokeColor(partyAccent).stroke();
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(INK).text(receiptTitle, left, y, { width, align: 'center' });
+  y += 18;
+  doc.font('Helvetica-Bold').fontSize(16).fillColor(partyAccent).text(data.number, left, y, { width, align: 'center' });
+  y += 25;
+  ticketPair(doc, 'Fecha', data.date, y, width);
+  y += 15;
+  dashedLine(doc, y, left, pageWidth - left);
+  y += 12;
 
-  labeledValue(doc, data.partyLabel, data.party, left, 106, 335);
-  labeledValue(doc, 'Documento', data.document || '-', 375, 106, 172);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text(data.partyLabel.toUpperCase(), left, y, { width });
+  y += 11;
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(INK).text(data.party, left, y, { width });
+  y += layout.partyHeight + 5;
+  if (data.document) {
+    ticketPair(doc, 'Documento', data.document, y, width);
+    y += layout.documentHeight;
+  }
+  dashedLine(doc, y, left, pageWidth - left);
+  y += 12;
 
-  doc.roundedRect(left, 151, width, 48, 5).fillAndStroke(PALE_GREEN, '#d9eee2');
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('VALOR', left + 12, 161);
-  doc.font('Helvetica-Bold').fontSize(22).fillColor(BRAND_DARK).text(formatMoney(data.amount), left + 12, 174, { width: 225 });
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('CONCEPTO', 270, 161);
-  doc.font('Helvetica').fontSize(10).fillColor(INK).text(data.concept || '-', 270, 174, { width: 265, height: 20, ellipsis: true });
-
-  let detailX = left;
-  const detailWidth = width / Math.max(1, data.details.length);
-  data.details.forEach((detail) => {
-    labeledValue(doc, detail.label, detail.value || '-', detailX, 215, detailWidth - 8);
-    detailX += detailWidth;
+  doc.roundedRect(left, y, width, 58, 5).fillAndStroke(PALE_GREEN, '#d9eee2');
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(MUTED).text('VALOR', left + 10, y + 9, { width: width - 20, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(BRAND_DARK).text(formatMoney(data.amount), left + 6, y + 25, {
+    width: width - 12,
+    align: 'center',
   });
+  y += 70;
 
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('CONCEPTO', left, y, { width });
+  y += 12;
+  doc.roundedRect(left, y, width, layout.conceptHeight + 10, 3).fillAndStroke('#f8fbf9', LINE);
+  doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.concept || '-', left + 5, y + 5, {
+    width: width - 10,
+    height: layout.conceptHeight,
+  });
+  y += layout.conceptHeight + 22;
+
+  data.details.forEach((detail, index) => {
+    ticketPair(doc, detail.label, detail.value || '-', y, width);
+    y += layout.detailHeights[index];
+  });
   if (data.paymentMethod) {
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('FORMA DE PAGO', left, 266);
-    const isCash = data.paymentMethod.toLowerCase().includes('efectivo');
-    checkOption(doc, 'Efectivo', isCash, left, 281);
-    checkOption(doc, 'Banco', !isCash, left + 94, 281);
+    ticketPair(doc, 'Forma de pago', data.paymentMethod, y, width);
+    y += layout.paymentHeight;
+  }
+  ticketPair(doc, 'Estado', data.status, y, width);
+  y += layout.statusHeight;
+
+  if (data.voidReason) {
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(DANGER).text('MOTIVO DE ANULACION', left, y, { width });
+    y += 12;
+    doc.roundedRect(left, y, width, layout.voidReasonHeight + 10, 3).fillAndStroke('#fff1f0', '#f5b7b1');
+    doc.font('Helvetica').fontSize(8).fillColor(DANGER).text(data.voidReason, left + 5, y + 5, {
+      width: width - 10,
+      height: layout.voidReasonHeight,
+    });
+    y += layout.voidReasonHeight + 22;
   }
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text(`ESTADO: ${data.status.toUpperCase()}`, 390, 270, { width: 157, align: 'right' });
-  signature(doc, 'Elaborado por', data.preparedBy, left, 333, 225);
-  signature(doc, data.kind === 'income' ? 'Recibido de / firma' : 'Aprobado por', data.approvedBy || '', 322, 333, 225);
+  dashedLine(doc, y, left, pageWidth - left);
+  y += 12;
+  ticketPair(doc, 'Elaborado por', data.preparedBy, y, width);
+  y += layout.preparedHeight + 27;
+  doc.moveTo(left, y).lineTo(pageWidth - left, y).lineWidth(0.7).strokeColor('#7d8981').stroke();
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(7.5)
+    .fillColor(MUTED)
+    .text(data.kind === 'income' ? 'RECIBIDO DE / FIRMA' : 'APROBADO POR', left, y + 7, { width, align: 'center' });
+  if (data.approvedBy) {
+    doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.approvedBy, left, y - 14, { width, align: 'center' });
+  }
+  y += 35;
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(BRAND_DARK).text('AgroPlastick', left, y + 8, { width, align: 'center' });
+  doc.font('Helvetica').fontSize(7).fillColor(MUTED).text('Empaques, amarres y proteccion para el agro', left, y + 22, {
+    width,
+    align: 'center',
+  });
 
   if (data.voidReason) {
     doc.save();
-    doc.rotate(-18, { origin: [doc.page.width / 2, doc.page.height / 2] });
-    doc.font('Helvetica-Bold').fontSize(60).fillColor(DANGER).opacity(0.16).text('ANULADO', 120, 185, { width: 360, align: 'center' });
+    doc.rotate(-22, { origin: [pageWidth / 2, layout.pageHeight / 2] });
+    doc.font('Helvetica-Bold').fontSize(38).fillColor(DANGER).opacity(0.14).text('ANULADO', 16, layout.pageHeight / 2 - 20, {
+      width: pageWidth - 32,
+      align: 'center',
+      lineBreak: false,
+    });
     doc.restore();
-    doc.opacity(1).font('Helvetica').fontSize(7).fillColor(DANGER).text(`Motivo: ${data.voidReason}`, left, 391, { width, align: 'center' });
+    doc.opacity(1);
   }
 
   doc.end();
   return done;
 }
 
+function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
+  const width = pageWidth - 32;
+  const valueWidth = width - 66;
+  const measureDoc = new PDFDocument({ size: [pageWidth, 14400], margin: 0 });
+  measureDoc.on('data', () => undefined);
+  measureDoc.font('Helvetica').fontSize(8);
+
+  const pairHeight = (value: string) => Math.max(15, measureDoc.heightOfString(value || '-', { width: valueWidth }));
+  const partyHeight = Math.max(11, measureDoc.font('Helvetica-Bold').fontSize(9).heightOfString(data.party, { width }));
+  const documentHeight = data.document ? pairHeight(data.document) : 0;
+  const conceptHeight = Math.max(
+    10,
+    measureDoc.font('Helvetica').fontSize(8).heightOfString(data.concept || '-', { width: width - 10 }),
+  );
+  const detailHeights = data.details.map((detail) => pairHeight(detail.value || '-'));
+  const paymentHeight = data.paymentMethod ? pairHeight(data.paymentMethod) : 0;
+  const statusHeight = pairHeight(data.status);
+  const preparedHeight = pairHeight(data.preparedBy);
+  const voidReasonHeight = data.voidReason
+    ? Math.max(10, measureDoc.heightOfString(data.voidReason, { width: width - 10 }))
+    : 0;
+
+  let y = 91 + 12 + 18 + 25 + 15 + 12;
+  y += 11 + partyHeight + 5;
+  y += documentHeight;
+  y += 12;
+  y += 70;
+  y += 12 + conceptHeight + 22;
+  detailHeights.forEach((height) => {
+    y += height;
+  });
+  y += paymentHeight;
+  y += statusHeight;
+  if (data.voidReason) y += 12 + voidReasonHeight + 22;
+  y += 12;
+  y += preparedHeight + 27;
+  y += 35;
+  y += 42;
+
+  measureDoc.end();
+  return {
+    pageHeight: Math.max(500, Math.ceil(y + 18)),
+    partyHeight,
+    documentHeight,
+    conceptHeight,
+    detailHeights,
+    paymentHeight,
+    statusHeight,
+    preparedHeight,
+    voidReasonHeight,
+  };
+}
+
 export async function buildOrderTicketPdf(data: OrderTicketData) {
   const pageWidth = 226.77;
-  const itemHeight = data.items.reduce((sum, item) => sum + 35 + Math.max(0, Math.ceil(item.description.length / 31) - 1) * 9, 0);
-  const pageHeight = Math.max(470, 330 + itemHeight);
-  const { doc, done } = createDocument({ size: [pageWidth, pageHeight], margin: 16 });
+  const layout = measureOrderTicket(data, pageWidth);
+  const { doc, done } = createDocument({ size: [pageWidth, layout.pageHeight], margin: 0 });
   const contentWidth = pageWidth - 32;
   const logo = getLogoBuffer();
 
@@ -289,18 +400,39 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   ticketPair(doc, 'Cliente', data.clientName, y, contentWidth);
   y += Math.max(18, doc.heightOfString(data.clientName, { width: 124 }));
   ticketPair(doc, 'Documento', data.clientDocument, y, contentWidth);
+  y += 17;
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('Direccion', 16, y, { width: contentWidth });
+  y += 11;
+  doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.deliveryAddress || 'No registrada', 16, y, { width: contentWidth });
+  y += doc.heightOfString(data.deliveryAddress || 'No registrada', { width: contentWidth }) + 4;
+  ticketPair(doc, 'Telefono', data.clientPhone || 'No registrado', y, contentWidth);
+  y += 15;
+  ticketPair(doc, 'Forma de pago', data.paymentMethod, y, contentWidth);
   y += 19;
   dashedLine(doc, y, 16, pageWidth - 16);
   y += 12;
 
   doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('PRODUCTOS', 16, y);
-  y += 16;
-  data.items.forEach((item) => {
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(INK).text(item.description, 16, y, { width: contentWidth });
-    y += doc.heightOfString(item.description, { width: contentWidth }) + 3;
-    doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(`${formatQuantity(item.quantity)} x ${formatMoney(item.unitPrice)}`, 16, y, { width: 112 });
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(INK).text(formatMoney(item.lineTotal), 128, y, { width: 82, align: 'right' });
-    y += 19;
+  y += 14;
+  const quantityWidth = 45;
+  const unitPriceWidth = 72;
+  const totalWidth = contentWidth - quantityWidth - unitPriceWidth;
+  ticketTableCell(doc, 'CANTIDAD', 16, y, quantityWidth, 20, { header: true, align: 'center', fontSize: 6.2 });
+  ticketTableCell(doc, 'VALOR UNITARIO', 16 + quantityWidth, y, unitPriceWidth, 20, { header: true, align: 'center', fontSize: 6.2 });
+  ticketTableCell(doc, 'VALOR TOTAL', 16 + quantityWidth + unitPriceWidth, y, totalWidth, 20, { header: true, align: 'center', fontSize: 6.2 });
+  y += 20;
+  data.items.forEach((item, itemIndex) => {
+    const descriptionHeight = layout.descriptionHeights[itemIndex];
+    ticketTableCell(doc, item.description, 16, y, contentWidth, descriptionHeight, { font: 'Helvetica-Bold', fontSize: 8 });
+    y += descriptionHeight;
+    ticketTableCell(doc, formatQuantity(item.quantity), 16, y, quantityWidth, 22, { align: 'center', fontSize: 7.5 });
+    ticketTableCell(doc, formatMoney(item.unitPrice), 16 + quantityWidth, y, unitPriceWidth, 22, { align: 'right', fontSize: 7.2 });
+    ticketTableCell(doc, formatMoney(item.lineTotal), 16 + quantityWidth + unitPriceWidth, y, totalWidth, 22, {
+      align: 'right',
+      font: 'Helvetica-Bold',
+      fontSize: 7.2,
+    });
+    y += 22;
   });
 
   dashedLine(doc, y, 16, pageWidth - 16);
@@ -309,7 +441,17 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   doc.font('Helvetica-Bold').fontSize(14).fillColor(BRAND_DARK).text(formatMoney(data.total), 80, y - 2, { width: 130, align: 'right' });
   y += 28;
   dashedLine(doc, y, 16, pageWidth - 16);
-  y += 13;
+  y += 12;
+
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('OBSERVACIONES', 16, y, { width: contentWidth });
+  y += 12;
+  doc.roundedRect(16, y, contentWidth, layout.observationsHeight + 10, 3).fillAndStroke('#f8fbf9', LINE);
+  doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.observations || 'Sin observaciones', 21, y + 5, {
+    width: contentWidth - 10,
+    height: layout.observationsHeight,
+    ellipsis: true,
+  });
+  y += layout.observationsHeight + 22;
 
   ticketPair(doc, 'Estado', data.invoiced ? 'Facturado' : 'Pendiente', y, contentWidth);
   y += 16;
@@ -323,6 +465,81 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
 
   doc.end();
   return done;
+}
+
+function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
+  const contentWidth = pageWidth - 32;
+  const measureDoc = new PDFDocument({ size: [pageWidth, 14400], margin: 0 });
+  measureDoc.on('data', () => undefined);
+  let y = 146;
+
+  measureDoc.font('Helvetica').fontSize(8);
+  const clientHeight = Math.max(18, measureDoc.heightOfString(data.clientName, { width: 124 }));
+  const addressHeight = Math.max(10, measureDoc.heightOfString(data.deliveryAddress || 'No registrada', { width: contentWidth }));
+  const observationsHeight = Math.max(
+    10,
+    measureDoc.heightOfString(data.observations || 'Sin observaciones', { width: contentWidth - 10 }),
+  );
+  const userHeight = Math.max(20, measureDoc.heightOfString(data.userName, { width: 124 }));
+  const descriptionHeights = data.items.map((item) => {
+    measureDoc.font('Helvetica-Bold').fontSize(8);
+    return Math.max(24, measureDoc.heightOfString(item.description, { width: contentWidth - 12 }) + 10);
+  });
+
+  y += 15;
+  y += clientHeight;
+  y += 17;
+  y += 11 + addressHeight + 4;
+  y += 15;
+  y += 19;
+  y += 12;
+  y += 14;
+  y += 20;
+  descriptionHeights.forEach((descriptionHeight) => {
+    y += descriptionHeight + 22;
+  });
+  y += 12;
+  y += 28;
+  y += 12;
+  y += 12;
+  y += observationsHeight + 22;
+  y += 16;
+  y += userHeight;
+
+  measureDoc.end();
+  return {
+    pageHeight: Math.max(600, Math.ceil(y + 54)),
+    descriptionHeights,
+    observationsHeight,
+  };
+}
+
+function ticketTableCell(
+  doc: any,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  options: {
+    header?: boolean;
+    align?: 'left' | 'center' | 'right';
+    font?: string;
+    fontSize?: number;
+  } = {},
+) {
+  const header = Boolean(options.header);
+  doc.rect(x, y, width, height).fillAndStroke(header ? PALE_GREEN : '#ffffff', header ? BRAND_GREEN : LINE);
+  doc
+    .font(options.font || (header ? 'Helvetica-Bold' : 'Helvetica'))
+    .fontSize(options.fontSize || 7.5)
+    .fillColor(header ? BRAND_DARK : INK)
+    .text(value, x + 4, y + (header ? 7 : 6), {
+      width: width - 8,
+      height: height - 8,
+      align: options.align || 'left',
+      ellipsis: true,
+    });
 }
 
 function createDocument(options: Record<string, unknown>) {
@@ -346,26 +563,6 @@ function addPageNumbers(doc: any) {
       lineBreak: false,
     });
   }
-}
-
-function labeledValue(doc: any, label: string, value: string, x: number, y: number, width: number) {
-  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(MUTED).text(label.toUpperCase(), x, y, { width });
-  doc.font('Helvetica').fontSize(10).fillColor(INK).text(value || '-', x, y + 13, { width, height: 19, ellipsis: true });
-  doc.moveTo(x, y + 35).lineTo(x + width, y + 35).lineWidth(0.6).strokeColor(LINE).stroke();
-}
-
-function checkOption(doc: any, label: string, checked: boolean, x: number, y: number) {
-  doc.rect(x, y, 11, 11).lineWidth(0.7).strokeColor(MUTED).stroke();
-  if (checked) {
-    doc.moveTo(x + 2, y + 6).lineTo(x + 5, y + 9).lineTo(x + 10, y + 2).lineWidth(1.5).strokeColor(BRAND_GREEN).stroke();
-  }
-  doc.font('Helvetica').fontSize(8).fillColor(INK).text(label, x + 16, y + 2);
-}
-
-function signature(doc: any, label: string, value: string, x: number, y: number, width: number) {
-  doc.moveTo(x, y).lineTo(x + width, y).lineWidth(0.7).strokeColor('#7d8981').stroke();
-  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(MUTED).text(label.toUpperCase(), x, y + 7, { width, align: 'center' });
-  if (value) doc.font('Helvetica').fontSize(8).fillColor(INK).text(value, x, y - 14, { width, align: 'center', ellipsis: true });
 }
 
 function ticketPair(doc: any, label: string, value: string, y: number, contentWidth: number) {

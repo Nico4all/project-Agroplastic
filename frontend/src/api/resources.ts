@@ -88,7 +88,14 @@ export const productsApi = {
 
 export const ordersApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<Order>>('/orders', { params })).data,
-  create: async (payload: { clientId: string; items: Array<{ productId: string; quantity: number; unitPrice: number }> }) =>
+  create: async (payload: {
+    clientId: string;
+    deliveryAddress: string;
+    clientPhone: string;
+    paymentMethod: 'CASH' | 'BANK';
+    observations?: string;
+    items: Array<{ productId: string; quantity: number; unitPrice: number }>;
+  }) =>
     (await api.post<Order>('/orders', payload)).data,
   setInvoiced: async (id: string, isInvoiced: boolean) => (await api.patch<Order>(`/orders/${id}/invoiced`, { isInvoiced })).data,
   ticketPdf: async (id: string) => (await api.get(`/orders/${id}/pdf`, { responseType: 'blob' })).data as Blob,

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsNumber, IsString, Min, ValidateNested } from 'class-validator';
+import { PaymentMethod } from '@prisma/client';
+import { ArrayMinSize, IsArray, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class CreateOrderItemDto {
   @IsString()
@@ -19,6 +20,24 @@ export class CreateOrderItemDto {
 export class CreateOrderDto {
   @IsString()
   clientId: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  deliveryAddress: string;
+
+  @IsString()
+  @MinLength(7)
+  @MaxLength(50)
+  clientPhone: string;
+
+  @IsEnum(PaymentMethod)
+  paymentMethod: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  observations?: string;
 
   @IsArray()
   @ArrayMinSize(1)

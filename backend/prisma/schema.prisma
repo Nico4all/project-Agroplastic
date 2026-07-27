@@ -209,19 +209,23 @@ model Product {
 }
 
 model Order {
-  id               String      @id @default(uuid())
-  userId           String      @map("user_id")
-  clientId         String      @map("client_id")
-  documentSequence Int         @map("document_sequence")
-  documentNumber   String      @unique @map("document_number")
-  clientName       String      @map("client_name")
-  clientDocument   String      @map("client_document")
-  totalAmount      Decimal     @map("total_amount") @db.Decimal(14, 2)
-  invoicedAt       DateTime?   @map("invoiced_at")
-  createdAt        DateTime    @default(now()) @map("created_at")
-  updatedAt        DateTime    @updatedAt @map("updated_at")
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client           Client      @relation(fields: [clientId], references: [id])
+  id               String         @id @default(uuid())
+  userId           String         @map("user_id")
+  clientId         String         @map("client_id")
+  documentSequence Int            @map("document_sequence")
+  documentNumber   String         @unique @map("document_number")
+  clientName       String         @map("client_name")
+  clientDocument   String         @map("client_document")
+  deliveryAddress  String?        @map("delivery_address") @db.VarChar(300)
+  clientPhone      String?        @map("client_phone") @db.VarChar(50)
+  paymentMethod    PaymentMethod? @map("payment_method")
+  observations     String?        @db.Text
+  totalAmount      Decimal        @map("total_amount") @db.Decimal(14, 2)
+  invoicedAt       DateTime?      @map("invoiced_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client           Client         @relation(fields: [clientId], references: [id])
   items            OrderItem[]
 
   @@unique([userId, documentSequence])

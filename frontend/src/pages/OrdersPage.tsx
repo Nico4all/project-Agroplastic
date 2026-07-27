@@ -3,7 +3,7 @@ import { Eye, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, ordersApi, productsApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
-import { Order } from '../types';
+import { Order, PaymentMethod } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
@@ -26,6 +26,10 @@ export function OrdersPage() {
   const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
   const [clientId, setClientId] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+  const [observations, setObservations] = useState('');
   const [lines, setLines] = useState<OrderLineForm[]>([emptyLine()]);
   const [error, setError] = useState('');
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
@@ -72,6 +76,10 @@ export function OrdersPage() {
 
   const openCreate = () => {
     setClientId('');
+    setDeliveryAddress('');
+    setClientPhone('');
+    setPaymentMethod('CASH');
+    setObservations('');
     setLines([emptyLine()]);
     setError('');
     setModalOpen(true);
@@ -102,6 +110,10 @@ export function OrdersPage() {
     }
     await create.mutateAsync({
       clientId,
+      deliveryAddress,
+      clientPhone,
+      paymentMethod,
+      observations,
       items: lines.map((line) => ({
         productId: line.productId,
         quantity: Number(line.quantity),
@@ -221,6 +233,47 @@ export function OrdersPage() {
             />
           </Field>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Direccion de entrega">
+              <Input
+                required
+                minLength={3}
+                maxLength={300}
+                value={deliveryAddress}
+                onChange={(event) => setDeliveryAddress(event.target.value)}
+                placeholder="Direccion completa del cliente"
+              />
+            </Field>
+            <Field label="Telefono">
+              <Input
+                required
+                type="tel"
+                minLength={7}
+                maxLength={50}
+                value={clientPhone}
+                onChange={(event) => setClientPhone(event.target.value)}
+                placeholder="Numero de contacto"
+              />
+            </Field>
+          </div>
+
+          <Field label="Forma de pago">
+            <Select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}>
+              <option value="CASH">Efectivo</option>
+              <option value="BANK">Banco</option>
+            </Select>
+          </Field>
+
+          <Field label="Observaciones" hint="Opcional. Apareceran en la tirilla del pedido.">
+            <textarea
+              className="input min-h-24 resize-y"
+              maxLength={1000}
+              value={observations}
+              onChange={(event) => setObservations(event.target.value)}
+              placeholder="Indicaciones de entrega u otras notas"
+            />
+          </Field>
+
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold">Productos</p>
@@ -239,7 +292,7 @@ export function OrdersPage() {
                 </Field>
                 <div className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2">
                   <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></Field>
-                  <Field label="Precio"><Input required type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} /></Field>
+                  <Field label="Valor unitario"><Input required type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} /></Field>
                   <div className="flex items-end"><Button variant="ghost" className="px-2 text-expense" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} title="Quitar producto"><Trash2 className="h-4 w-4" /></Button></div>
                 </div>
               </div>
@@ -282,6 +335,25 @@ export function OrdersPage() {
               </div>
             </div>
 
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg bg-paper p-3 sm:col-span-2">
+                <p className="text-xs font-semibold uppercase text-mute">Direccion de entrega</p>
+                <p className="mt-1 font-semibold">{viewingOrder.deliveryAddress || 'No registrada'}</p>
+              </div>
+              <div className="rounded-lg bg-paper p-3">
+                <p className="text-xs font-semibold uppercase text-mute">Telefono</p>
+                <p className="mt-1 font-semibold">{viewingOrder.clientPhone || 'No registrado'}</p>
+              </div>
+              <div className="rounded-lg bg-paper p-3">
+                <p className="text-xs font-semibold uppercase text-mute">Forma de pago</p>
+                <p className="mt-1 font-semibold">{viewingOrder.paymentMethod === 'BANK' ? 'Banco' : viewingOrder.paymentMethod === 'CASH' ? 'Efectivo' : 'No registrada'}</p>
+              </div>
+              <div className="rounded-lg bg-paper p-3 sm:col-span-2 lg:col-span-4">
+                <p className="text-xs font-semibold uppercase text-mute">Observaciones</p>
+                <p className="mt-1 whitespace-pre-wrap">{viewingOrder.observations || 'Sin observaciones'}</p>
+              </div>
+            </div>
+
             <div className="overflow-hidden rounded-xl border border-line">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-sm">
@@ -289,8 +361,8 @@ export function OrdersPage() {
                     <tr>
                       <th className="px-4 py-3">Producto</th>
                       <th className="px-4 py-3 text-right">Cantidad</th>
-                      <th className="px-4 py-3 text-right">Precio unitario</th>
-                      <th className="px-4 py-3 text-right">Subtotal</th>
+                      <th className="px-4 py-3 text-right">Valor unitario</th>
+                      <th className="px-4 py-3 text-right">Valor total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
