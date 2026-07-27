@@ -51,6 +51,9 @@ export class ExpensesService {
     const actor = await this.users.getActiveUser(userId);
     const category = await this.prisma.expenseCategory.findFirst({ where: { id: dto.categoryId, isActive: true } });
     if (!category) throw new BadRequestException('Categoria no encontrada o inactiva');
+    if (dto.appliesRetention && (dto.retentionAmount ?? 0) > dto.amount) {
+      throw new BadRequestException('El valor de la retencion o descuento no puede superar el valor del egreso');
+    }
 
     const expense = await this.prisma.$transaction(async (transaction) => {
       const numberedUser = await transaction.user.update({
@@ -68,6 +71,9 @@ export class ExpensesService {
           documentNumber: `${numberedUser.documentSuffix}-${documentSequence}`,
           paidTo: dto.paidTo.trim(),
           amount: new Prisma.Decimal(dto.amount),
+          appliesRetention: dto.appliesRetention,
+          retentionPercentage: dto.appliesRetention ? new Prisma.Decimal(dto.retentionPercentage!) : null,
+          retentionAmount: dto.appliesRetention ? new Prisma.Decimal(dto.retentionAmount!) : null,
           description: dto.description?.trim() || null,
           approvedBy: dto.approvedBy?.trim() || actor.name,
           expenseDate: new Date(dto.expenseDate),
@@ -122,19 +128,42 @@ export class ExpensesService {
     const rows = await this.findRowsForExport(userId, query);
     return buildExcelHtml(
       'Listado de egresos',
-      ['Id documento', 'Fecha', 'Usuario', 'Categoria', 'Pagado a', 'Valor', 'Estado', 'Causacion', 'Aprobado por', 'Descripcion'],
-      rows.map((row) => [
-        row.documentNumber,
-        formatDate(row.expenseDate),
-        row.user.name,
-        row.category.name,
-        row.paidTo,
-        decimalToNumber(row.amount),
-        this.statusLabel(row.status),
-        row.causedAt ? 'Causado' : 'Pendiente',
-        row.approvedBy || '',
-        row.description || '',
-      ]),
+      [
+        'Id documento',
+        'Fecha',
+        'Usuario',
+        'Categoria',
+        'Pagado a',
+        'Valor',
+        '% Retencion / descuento',
+        'Valor descontado',
+        'Valor total',
+        'Estado',
+        'Causacion',
+        'Aprobado por',
+        'Descripcion',
+      ],
+      rows.map((row) => {
+        const amount = decimalToNumber(row.amount);
+        const retentionAmount = row.appliesRetention ? decimalToNumber(row.retentionAmount) : 0;
+        return [
+          row.documentNumber,
+          formatDate(row.expenseDate),
+          row.user.name,
+          row.category.name,
+          row.paidTo,
+          amount,
+          row.appliesRetention
+            ? `${decimalToNumber(row.retentionPercentage).toLocaleString('es-CO', { maximumFractionDigits: 2 })}%`
+            : '',
+          retentionAmount,
+          amount - retentionAmount,
+          this.statusLabel(row.status),
+          row.causedAt ? 'Causado' : 'Pendiente',
+          row.approvedBy || '',
+          row.description || '',
+        ];
+      }),
     );
   }
 
@@ -142,7 +171,13 @@ export class ExpensesService {
     const rows = await this.findRowsForExport(userId, query);
     const total = rows
       .filter((row) => row.status === RecordStatus.ACTIVE)
-      .reduce((sum, row) => sum + decimalToNumber(row.amount), 0);
+      .reduce(
+        (sum, row) =>
+          sum +
+          decimalToNumber(row.amount) -
+          (row.appliesRetention ? decimalToNumber(row.retentionAmount) : 0),
+        0,
+      );
     return buildListPdf(
       'Listado de egresos',
       [
@@ -150,27 +185,39 @@ export class ExpensesService {
         { label: 'Registros', value: String(rows.length) },
       ],
       [
-        { label: 'Id', width: 60 },
-        { label: 'Fecha', width: 58 },
-        { label: 'Usuario', width: 82 },
-        { label: 'Categoria', width: 100 },
-        { label: 'Pagado a', width: 122 },
-        { label: 'Valor', width: 92, align: 'right' },
-        { label: 'Estado', width: 65, align: 'center' },
-        { label: 'Causacion', width: 72, align: 'center' },
-        { label: 'Aprobado por', width: 90 },
+        { label: 'Id', width: 52 },
+        { label: 'Fecha', width: 50 },
+        { label: 'Usuario', width: 62 },
+        { label: 'Categoria', width: 75 },
+        { label: 'Pagado a', width: 90 },
+        { label: 'Valor', width: 70, align: 'right' },
+        { label: '% Ret.', width: 42, align: 'right' },
+        { label: 'Descuento', width: 72, align: 'right' },
+        { label: 'Total', width: 72, align: 'right' },
+        { label: 'Estado', width: 50, align: 'center' },
+        { label: 'Causacion', width: 60, align: 'center' },
+        { label: 'Aprobado', width: 75 },
       ],
-      rows.map((row) => [
-        row.documentNumber,
-        formatDate(row.expenseDate),
-        row.user.name,
-        row.category.name,
-        row.paidTo,
-        formatMoney(decimalToNumber(row.amount)),
-        this.statusLabel(row.status),
-        row.causedAt ? 'Causado' : 'Pendiente',
-        row.approvedBy || '-',
-      ]),
+      rows.map((row) => {
+        const amount = decimalToNumber(row.amount);
+        const retentionAmount = row.appliesRetention ? decimalToNumber(row.retentionAmount) : 0;
+        return [
+          row.documentNumber,
+          formatDate(row.expenseDate),
+          row.user.name,
+          row.category.name,
+          row.paidTo,
+          formatMoney(amount),
+          row.appliesRetention
+            ? `${decimalToNumber(row.retentionPercentage).toLocaleString('es-CO', { maximumFractionDigits: 2 })}%`
+            : '-',
+          formatMoney(retentionAmount),
+          formatMoney(amount - retentionAmount),
+          this.statusLabel(row.status),
+          row.causedAt ? 'Causado' : 'Pendiente',
+          row.approvedBy || '-',
+        ];
+      }),
     );
   }
 
@@ -187,6 +234,19 @@ export class ExpensesService {
       concept: expense.description || expense.category.name,
       details: [
         { label: 'Categoria', value: expense.category.name },
+        ...(expense.appliesRetention
+          ? [
+              {
+                label: 'Ret. / descuento',
+                value: `${decimalToNumber(expense.retentionPercentage).toLocaleString('es-CO', { maximumFractionDigits: 2 })}%`,
+              },
+              { label: 'Descuento', value: formatMoney(decimalToNumber(expense.retentionAmount)) },
+              {
+                label: 'Valor total',
+                value: formatMoney(decimalToNumber(expense.amount) - decimalToNumber(expense.retentionAmount)),
+              },
+            ]
+          : []),
       ],
       preparedBy: expense.user.name,
       approvedBy: expense.approvedBy || expense.user.name,
@@ -253,6 +313,8 @@ export class ExpensesService {
     return {
       ...row,
       amount: decimalToNumber(row.amount),
+      retentionPercentage: row.retentionPercentage === null ? null : decimalToNumber(row.retentionPercentage),
+      retentionAmount: row.retentionAmount === null ? null : decimalToNumber(row.retentionAmount),
     };
   }
 

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateExpenseDto {
   @IsString()
@@ -14,6 +14,22 @@ export class CreateExpenseDto {
   @IsNumber()
   @Min(0.01)
   amount: number;
+
+  @IsBoolean()
+  appliesRetention: boolean;
+
+  @ValidateIf((dto: CreateExpenseDto) => dto.appliesRetention)
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(100)
+  retentionPercentage?: number;
+
+  @ValidateIf((dto: CreateExpenseDto) => dto.appliesRetention)
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  retentionAmount?: number;
 
   @IsDateString()
   expenseDate: string;

@@ -129,6 +129,9 @@ export type CashExpense = {
   documentNumber: string;
   paidTo: string;
   amount: number;
+  appliesRetention: boolean;
+  retentionPercentage?: number | null;
+  retentionAmount?: number | null;
   description?: string | null;
   approvedBy?: string | null;
   expenseDate: string;

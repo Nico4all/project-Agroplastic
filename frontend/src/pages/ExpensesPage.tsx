@@ -17,6 +17,9 @@ type ExpenseForm = {
   categoryId: string;
   paidTo: string;
   amount: string;
+  appliesRetention: boolean;
+  retentionPercentage: string;
+  retentionAmount: string;
   expenseDate: string;
   approvedBy: string;
   description: string;
@@ -26,6 +29,9 @@ const emptyForm: ExpenseForm = {
   categoryId: '',
   paidTo: '',
   amount: '',
+  appliesRetention: false,
+  retentionPercentage: '',
+  retentionAmount: '',
   expenseDate: dateInput(),
   approvedBy: '',
   description: '',
@@ -110,6 +116,9 @@ export function ExpensesPage() {
       categoryId: form.categoryId,
       paidTo: form.paidTo,
       amount: Number(form.amount),
+      appliesRetention: form.appliesRetention,
+      retentionPercentage: form.appliesRetention ? Number(form.retentionPercentage) : undefined,
+      retentionAmount: form.appliesRetention ? Number(form.retentionAmount) : undefined,
       expenseDate: form.expenseDate,
       approvedBy: form.approvedBy,
       description: form.description,
@@ -301,6 +310,52 @@ export function ExpensesPage() {
               <Input required type="date" value={form.expenseDate} onChange={(event) => setForm({ ...form, expenseDate: event.target.value })} />
             </Field>
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-paper px-4 py-3">
+            <input
+              type="checkbox"
+              checked={form.appliesRetention}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  appliesRetention: event.target.checked,
+                  ...(!event.target.checked ? { retentionPercentage: '', retentionAmount: '' } : {}),
+                })
+              }
+              className="mt-0.5 h-4 w-4 accent-brand"
+            />
+            <span>
+              <span className="block text-sm font-semibold">Aplica retencion / descuento</span>
+              <span className="mt-0.5 block text-xs text-mute">Activa esta opcion para registrar el porcentaje y el valor aplicado.</span>
+            </span>
+          </label>
+          {form.appliesRetention && (
+            <div className="grid gap-3 rounded-lg border border-brand/20 bg-brand-soft/40 p-3 sm:grid-cols-2">
+              <Field label="Porcentaje (%)">
+                <Input
+                  required
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.01"
+                  value={form.retentionPercentage}
+                  onChange={(event) => setForm({ ...form, retentionPercentage: event.target.value })}
+                  placeholder="Ej. 4"
+                />
+              </Field>
+              <Field label="Valor aplicado">
+                <Input
+                  required
+                  type="number"
+                  min="0.01"
+                  max={form.amount || undefined}
+                  step="0.01"
+                  value={form.retentionAmount}
+                  onChange={(event) => setForm({ ...form, retentionAmount: event.target.value })}
+                  placeholder="Valor retenido o descontado"
+                />
+              </Field>
+            </div>
+          )}
           <Field label="Aprobado por">
             <Input maxLength={120} value={form.approvedBy} onChange={(event) => setForm({ ...form, approvedBy: event.target.value })} />
           </Field>
