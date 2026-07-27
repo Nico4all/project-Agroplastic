@@ -3,7 +3,7 @@ import { Eye, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, ordersApi, productsApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
-import { Order, PaymentMethod } from '../types';
+import { Order, OrderPaymentMethod } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
@@ -28,7 +28,7 @@ export function OrdersPage() {
   const [clientId, setClientId] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [clientPhone, setClientPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>('CASH');
   const [observations, setObservations] = useState('');
   const [lines, setLines] = useState<OrderLineForm[]>([emptyLine()]);
   const [error, setError] = useState('');
@@ -258,9 +258,10 @@ export function OrdersPage() {
           </div>
 
           <Field label="Forma de pago">
-            <Select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}>
+            <Select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as OrderPaymentMethod)}>
               <option value="CASH">Efectivo</option>
               <option value="BANK">Banco</option>
+              <option value="CREDIT">Credito</option>
             </Select>
           </Field>
 
@@ -346,7 +347,15 @@ export function OrdersPage() {
               </div>
               <div className="rounded-lg bg-paper p-3">
                 <p className="text-xs font-semibold uppercase text-mute">Forma de pago</p>
-                <p className="mt-1 font-semibold">{viewingOrder.paymentMethod === 'BANK' ? 'Banco' : viewingOrder.paymentMethod === 'CASH' ? 'Efectivo' : 'No registrada'}</p>
+                <p className="mt-1 font-semibold">
+                  {viewingOrder.paymentMethod === 'BANK'
+                    ? 'Banco'
+                    : viewingOrder.paymentMethod === 'CASH'
+                      ? 'Efectivo'
+                      : viewingOrder.paymentMethod === 'CREDIT'
+                        ? 'Credito'
+                        : 'No registrada'}
+                </p>
               </div>
               <div className="rounded-lg bg-paper p-3 sm:col-span-2 lg:col-span-4">
                 <p className="text-xs font-semibold uppercase text-mute">Observaciones</p>

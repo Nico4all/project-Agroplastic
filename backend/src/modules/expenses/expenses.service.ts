@@ -187,11 +187,9 @@ export class ExpensesService {
       concept: expense.description || expense.category.name,
       details: [
         { label: 'Categoria', value: expense.category.name },
-        { label: 'Causacion', value: expense.causedAt ? 'Causado' : 'Pendiente' },
       ],
       preparedBy: expense.user.name,
       approvedBy: expense.approvedBy || expense.user.name,
-      status: this.statusLabel(expense.status),
       voidReason: expense.status === RecordStatus.VOID ? expense.voidReason || 'Sin motivo' : undefined,
     });
   }

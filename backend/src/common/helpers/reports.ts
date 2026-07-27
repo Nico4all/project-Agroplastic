@@ -23,7 +23,6 @@ export type CashReceiptData = {
   paymentMethod?: string;
   preparedBy: string;
   approvedBy?: string;
-  status: string;
   voidReason?: string;
 };
 
@@ -275,8 +274,6 @@ export async function buildCashReceiptPdf(data: CashReceiptData) {
     ticketPair(doc, 'Forma de pago', data.paymentMethod, y, width);
     y += layout.paymentHeight;
   }
-  ticketPair(doc, 'Estado', data.status, y, width);
-  y += layout.statusHeight;
 
   if (data.voidReason) {
     doc.font('Helvetica-Bold').fontSize(8).fillColor(DANGER).text('MOTIVO DE ANULACION', left, y, { width });
@@ -341,7 +338,6 @@ function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
   );
   const detailHeights = data.details.map((detail) => pairHeight(detail.value || '-'));
   const paymentHeight = data.paymentMethod ? pairHeight(data.paymentMethod) : 0;
-  const statusHeight = pairHeight(data.status);
   const preparedHeight = pairHeight(data.preparedBy);
   const voidReasonHeight = data.voidReason
     ? Math.max(10, measureDoc.heightOfString(data.voidReason, { width: width - 10 }))
@@ -357,7 +353,6 @@ function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
     y += height;
   });
   y += paymentHeight;
-  y += statusHeight;
   if (data.voidReason) y += 12 + voidReasonHeight + 22;
   y += 12;
   y += preparedHeight + 27;
@@ -372,7 +367,6 @@ function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
     conceptHeight,
     detailHeights,
     paymentHeight,
-    statusHeight,
     preparedHeight,
     voidReasonHeight,
   };

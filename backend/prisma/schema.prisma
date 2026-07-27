@@ -57,6 +57,12 @@ enum PaymentMethod {
   BANK
 }
 
+enum OrderPaymentMethod {
+  CASH
+  BANK
+  CREDIT
+}
+
 enum RecordStatus {
   ACTIVE
   VOID
@@ -218,7 +224,7 @@ model Order {
   clientDocument   String         @map("client_document")
   deliveryAddress  String?        @map("delivery_address") @db.VarChar(300)
   clientPhone      String?        @map("client_phone") @db.VarChar(50)
-  paymentMethod    PaymentMethod? @map("payment_method")
+  paymentMethod    OrderPaymentMethod? @map("payment_method")
   observations     String?        @db.Text
   totalAmount      Decimal        @map("total_amount") @db.Decimal(14, 2)
   invoicedAt       DateTime?      @map("invoiced_at")

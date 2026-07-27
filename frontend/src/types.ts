@@ -6,6 +6,7 @@ export type LoanStatus = 'OPEN' | 'PAID';
 export type UserRole = 'ADMIN' | 'BODEGA';
 export type IncomeType = 'ADVANCE' | 'RECEIVABLE_PAYMENT';
 export type PaymentMethod = 'CASH' | 'BANK';
+export type OrderPaymentMethod = 'CASH' | 'BANK' | 'CREDIT';
 export type RecordStatus = 'ACTIVE' | 'VOID';
 
 export type User = {
@@ -164,7 +165,7 @@ export type Order = {
   clientDocument: string;
   deliveryAddress?: string | null;
   clientPhone?: string | null;
-  paymentMethod?: PaymentMethod | null;
+  paymentMethod?: OrderPaymentMethod | null;
   observations?: string | null;
   totalAmount: number;
   invoicedAt?: string | null;

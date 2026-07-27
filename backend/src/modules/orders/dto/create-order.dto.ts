@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { PaymentMethod } from '@prisma/client';
+import { OrderPaymentMethod } from '@prisma/client';
 import { ArrayMinSize, IsArray, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class CreateOrderItemDto {
@@ -31,8 +31,8 @@ export class CreateOrderDto {
   @MaxLength(50)
   clientPhone: string;
 
-  @IsEnum(PaymentMethod)
-  paymentMethod: PaymentMethod;
+  @IsEnum(OrderPaymentMethod)
+  paymentMethod: OrderPaymentMethod;
 
   @IsOptional()
   @IsString()

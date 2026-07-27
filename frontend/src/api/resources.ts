@@ -9,6 +9,7 @@ import {
   LoanPayment,
   PaginatedResult,
   Order,
+  OrderPaymentMethod,
   Product,
   Transaction,
   Transfer,
@@ -92,7 +93,7 @@ export const ordersApi = {
     clientId: string;
     deliveryAddress: string;
     clientPhone: string;
-    paymentMethod: 'CASH' | 'BANK';
+    paymentMethod: OrderPaymentMethod;
     observations?: string;
     items: Array<{ productId: string; quantity: number; unitPrice: number }>;
   }) =>

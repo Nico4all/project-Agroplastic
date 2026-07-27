@@ -193,11 +193,9 @@ export class IncomesService {
       concept: income.description || this.incomeTypeLabel(income.type),
       details: [
         { label: 'Tipo', value: this.incomeTypeLabel(income.type) },
-        { label: 'Causacion', value: income.causedAt ? 'Causado' : 'Pendiente' },
       ],
       paymentMethod: this.paymentMethodLabel(income.paymentMethod),
       preparedBy: income.user.name,
-      status: this.statusLabel(income.status),
       voidReason: income.status === RecordStatus.VOID ? income.voidReason || 'Sin motivo' : undefined,
     });
   }

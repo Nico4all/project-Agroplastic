@@ -122,7 +122,14 @@ export class OrdersService {
       clientDocument: order.clientDocument,
       deliveryAddress: order.deliveryAddress || '',
       clientPhone: order.clientPhone || '',
-      paymentMethod: order.paymentMethod === 'BANK' ? 'Banco' : order.paymentMethod === 'CASH' ? 'Efectivo' : 'No registrado',
+      paymentMethod:
+        order.paymentMethod === 'BANK'
+          ? 'Banco'
+          : order.paymentMethod === 'CASH'
+            ? 'Efectivo'
+            : order.paymentMethod === 'CREDIT'
+              ? 'Credito'
+              : 'No registrado',
       observations: order.observations || '',
       userName: order.user.name,
       invoiced: Boolean(order.invoicedAt),
