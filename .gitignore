@@ -6,11 +6,15 @@ frontend/node_modules/
 
 # Ignore environment variable files
 .env
+.env.development
+.env.production
 backend/.env
 backend/.env.expample
+backend/.env.example
 frontend/.env
 frontend/.env.expample
+frontend/.env.example
 
-.env.production
-.env.example
-.env.production.example
+# Keep safe templates under version control
+!/.env.example
+!/.env.development.example

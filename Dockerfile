@@ -41,7 +41,7 @@ ENV NODE_ENV=production
 ENV PORT=3002
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends mariadb-server mariadb-client openssl \
+  && apt-get install -y --no-install-recommends openssl \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-prod-deps --chown=node:node /app/backend/node_modules ./node_modules
@@ -50,10 +50,10 @@ COPY --from=backend-build --chown=node:node /app/backend/node_modules/@prisma/cl
 COPY --from=backend-build --chown=node:node /app/backend/dist ./dist
 COPY --from=backend-build --chown=node:node /app/backend/public ./public
 COPY --from=backend-build --chown=node:node /app/backend/prisma ./prisma
-COPY docker/start-single-container.sh /usr/local/bin/start-single-container.sh
+COPY docker/start-app.sh /usr/local/bin/start-app.sh
 
-RUN chmod +x /usr/local/bin/start-single-container.sh
+RUN chmod +x /usr/local/bin/start-app.sh
 
-VOLUME ["/var/lib/mysql"]
 EXPOSE 3002
-CMD ["start-single-container.sh"]
+USER node
+CMD ["start-app.sh"]

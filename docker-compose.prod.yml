@@ -1,5 +1,31 @@
+name: agroplastic-caja-bodega
+
 services:
-  caja-bodega:
+  mariadb:
+    image: mariadb:11.4.10
+    container_name: caja-bodega-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MARIADB_DATABASE:?MARIADB_DATABASE no esta definido}
+      MARIADB_USER: ${MARIADB_USER:?MARIADB_USER no esta definido}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD no esta definido}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD no esta definido}
+      MARIADB_AUTO_UPGRADE: "1"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
     build:
       context: .
       dockerfile: Dockerfile
@@ -10,20 +36,38 @@ services:
     image: caja-bodega-app:prod
     container_name: caja-bodega-app
     restart: unless-stopped
-    env_file:
-      - .env.production
     environment:
       NODE_ENV: production
       PORT: ${APP_PORT:-3002}
       APP_BASE_PATH: ${APP_BASE_PATH:-/caja-bodega}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3002}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-agroplastic_cashbox}
-      APP_DB_USER: ${APP_DB_USER:-caja_bodega}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-caja_bodega_pass}
-    ports:
-      - "${HOST_APP_PORT:-3002}:${APP_PORT:-3002}"
-    volumes:
-      - caja_bodega_mysql:/var/lib/mysql
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL no esta definido}
+      DATABASE_URL: mysql://${MARIADB_USER}:${MARIADB_PASSWORD}@mariadb:3306/${MARIADB_DATABASE}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET no esta definido}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET no esta definido}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-10}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME no esta definido}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD no esta definido}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      ADMIN_DOCUMENT_SUFFIX: ${ADMIN_DOCUMENT_SUFFIX:-ADMIN}
+      MAX_WAREHOUSE_USERS: ${MAX_WAREHOUSE_USERS:-4}
+      RUN_DATABASE_SEED: ${RUN_DATABASE_SEED:-true}
+    expose:
+      - "${APP_PORT:-3002}"
+    networks:
+      - proxy
+      - database
+    depends_on:
+      mariadb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const p=process.env.PORT||3002; const b=process.env.APP_BASE_PATH||'/caja-bodega'; fetch('http://127.0.0.1:'+p+b+'/api/auth/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s
@@ -31,5 +75,33 @@ services:
       retries: 5
       start_period: 90s
 
+  nginx:
+    image: nginx:1.28.3-alpine
+    container_name: caja-bodega-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - proxy
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/nginx-health | grep -q '^ok$'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
-  caja_bodega_mysql:
+  mariadb_data:
+    name: caja_bodega_mariadb_data
+
+networks:
+  proxy:
+    name: caja_bodega_proxy
+  database:
+    name: caja_bodega_database
+    internal: true

@@ -6,9 +6,11 @@ declare const process: {
 };
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+  const envDir = `${process.cwd()}/..`;
+  const env = loadEnv(mode, envDir, 'VITE_');
   return {
     base: env.VITE_BASE_PATH || '/caja-bodega/',
+    envDir,
     plugins: [react()],
     server: {
       port: 3003,

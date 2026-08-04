@@ -12,6 +12,6 @@ npm-debug.log*
 Dockerfile
 docker-compose*.yml
 .env
+.env.*
 backend/.env
 frontend/.env
-.env.production
