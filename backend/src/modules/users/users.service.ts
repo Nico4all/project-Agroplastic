@@ -23,6 +23,10 @@ export class UsersService {
         email: true,
         username: true,
         role: true,
+        pointOfSaleId: true,
+        pointOfSale: {
+          select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+        },
         documentSuffix: true,
         isActive: true,
         createdAt: true,
@@ -42,6 +46,10 @@ export class UsersService {
         name: true,
         username: true,
         role: true,
+        pointOfSaleId: true,
+        pointOfSale: {
+          select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+        },
         documentSuffix: true,
         isActive: true,
         createdAt: true,
@@ -62,6 +70,10 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { username } });
     if (existing) throw new ConflictException('El usuario ya existe');
 
+    const pointOfSale = await this.prisma.pointOfSale.findUnique({ where: { id: dto.pointOfSaleId } });
+    if (!pointOfSale) throw new NotFoundException('Punto de venta no encontrado');
+    if (!pointOfSale.isActive) throw new BadRequestException('El punto de venta seleccionado esta inactivo');
+
     const passwordHash = await argon2.hash(dto.password);
     const documentSuffix = normalizeDocumentSuffix(dto.documentSuffix);
     if (!documentSuffix) throw new BadRequestException('El sufijo de documentos es obligatorio');
@@ -76,6 +88,7 @@ export class UsersService {
           email: `${username}@local.agroplastic`,
           passwordHash,
           role: UserRole.BODEGA,
+          pointOfSaleId: pointOfSale.id,
           documentSuffix,
           emailVerifiedAt: new Date(),
         },
@@ -84,6 +97,10 @@ export class UsersService {
           name: true,
           username: true,
           role: true,
+          pointOfSaleId: true,
+          pointOfSale: {
+            select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+          },
           documentSuffix: true,
           isActive: true,
           createdAt: true,
@@ -100,14 +117,22 @@ export class UsersService {
   async updateManaged(requestUserId: string, userId: string, dto: UpdateManagedUserDto) {
     await this.ensureAdmin(requestUserId);
 
-    if (dto.name === undefined && dto.isActive === undefined && dto.password === undefined) {
-      throw new BadRequestException('Debes indicar el nombre, el estado o una nueva contrasena');
+    if (dto.name === undefined && dto.isActive === undefined && dto.password === undefined && dto.pointOfSaleId === undefined) {
+      throw new BadRequestException('Debes indicar el nombre, el punto de venta, el estado o una nueva contrasena');
     }
 
     const managedUser = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!managedUser) throw new NotFoundException('Usuario no encontrado');
     if (managedUser.role !== UserRole.BODEGA) {
       throw new ForbiddenException('La cuenta administradora no se puede modificar desde esta pantalla');
+    }
+
+    const effectivePointOfSaleId = dto.pointOfSaleId ?? managedUser.pointOfSaleId;
+    if (!effectivePointOfSaleId) throw new BadRequestException('El usuario debe tener un punto de venta');
+    const pointOfSale = await this.prisma.pointOfSale.findUnique({ where: { id: effectivePointOfSaleId } });
+    if (!pointOfSale) throw new NotFoundException('Punto de venta no encontrado');
+    if (!pointOfSale.isActive && (dto.pointOfSaleId !== undefined || dto.isActive === true)) {
+      throw new BadRequestException('El punto de venta seleccionado esta inactivo');
     }
 
     if (dto.password !== undefined && !dto.password.trim()) {
@@ -127,6 +152,7 @@ export class UsersService {
         where: { id: userId },
         data: {
           ...(name !== undefined ? { name } : {}),
+          ...(dto.pointOfSaleId !== undefined ? { pointOfSaleId: pointOfSale.id } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
           ...(passwordHash !== undefined ? { passwordHash } : {}),
         },
@@ -135,6 +161,10 @@ export class UsersService {
           name: true,
           username: true,
           role: true,
+          pointOfSaleId: true,
+          pointOfSale: {
+            select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+          },
           documentSuffix: true,
           isActive: true,
           createdAt: true,

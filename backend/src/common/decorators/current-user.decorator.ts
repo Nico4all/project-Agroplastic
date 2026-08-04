@@ -7,6 +7,7 @@ export type AuthenticatedUser = {
   name: string;
   role: UserRole;
   documentSuffix: string;
+  pointOfSaleId: string | null;
 };
 
 export const CurrentUser = createParamDecorator(

@@ -9,12 +9,24 @@ export type PaymentMethod = 'CASH' | 'BANK';
 export type OrderPaymentMethod = 'CASH' | 'BANK' | 'CREDIT';
 export type RecordStatus = 'ACTIVE' | 'VOID';
 
+export type PointOfSale = {
+  id: string;
+  name: string;
+  code: string;
+  city?: string | null;
+  address?: string | null;
+  isActive: boolean;
+  _count?: { users: number };
+};
+
 export type User = {
   id: string;
   name: string;
   email: string;
   username: string;
   role: UserRole;
+  pointOfSaleId?: string | null;
+  pointOfSale?: PointOfSale | null;
   documentSuffix: string;
   isActive?: boolean;
   emailVerifiedAt?: string | null;

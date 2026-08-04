@@ -75,6 +75,7 @@ model User {
   username          String                  @unique
   passwordHash      String                  @map("password_hash")
   role              UserRole                @default(BODEGA)
+  pointOfSaleId     String?                 @map("point_of_sale_id")
   documentSuffix    String                  @unique @map("document_suffix")
   nextIncomeNumber  Int                     @default(1) @map("next_income_number")
   nextExpenseNumber Int                     @default(1) @map("next_expense_number")
@@ -99,8 +100,25 @@ model User {
   voidedExpenses    Expense[]               @relation("ExpenseVoidUser")
   refreshTokens     RefreshToken[]
   emailCodes        EmailVerificationCode[]
+  pointOfSale       PointOfSale?            @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
 
+  @@index([pointOfSaleId])
   @@map("users")
+}
+
+model PointOfSale {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  city      String?
+  address   String?  @db.VarChar(300)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  users     User[]
+
+  @@index([isActive])
+  @@map("points_of_sale")
 }
 
 model Client {

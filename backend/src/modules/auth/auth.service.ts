@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { User, UserRole } from '@prisma/client';
+import { PointOfSale, User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,8 +19,11 @@ export class AuthService {
     await this.ensureBootstrapAdmin();
 
     const username = this.normalizeUsername(dto.username);
-    const user = await this.prisma.user.findUnique({ where: { username } });
+    const user = await this.prisma.user.findUnique({ where: { username }, include: { pointOfSale: true } });
     if (!user || !user.isActive) throw new UnauthorizedException('Credenciales invalidas');
+    if (user.role === UserRole.BODEGA && (!user.pointOfSale || !user.pointOfSale.isActive)) {
+      throw new UnauthorizedException('El usuario no tiene un punto de venta activo');
+    }
 
     const valid = await argon2.verify(user.passwordHash, dto.password);
     if (!valid) throw new UnauthorizedException('Credenciales invalidas');
@@ -34,11 +37,14 @@ export class AuthService {
 
     const stored = await this.prisma.refreshToken.findUnique({
       where: { id: parsed.id },
-      include: { user: true },
+      include: { user: { include: { pointOfSale: true } } },
     });
 
     if (!stored || stored.revokedAt || stored.expiresAt < new Date() || !stored.user.isActive) {
       throw new UnauthorizedException('Refresh token expirado');
+    }
+    if (stored.user.role === UserRole.BODEGA && (!stored.user.pointOfSale || !stored.user.pointOfSale.isActive)) {
+      throw new UnauthorizedException('El usuario no tiene un punto de venta activo');
     }
 
     const valid = await argon2.verify(stored.tokenHash, parsed.secret);
@@ -63,7 +69,7 @@ export class AuthService {
     return { ok: true };
   }
 
-  private async issueSession(user: User) {
+  private async issueSession(user: User & { pointOfSale: PointOfSale | null }) {
     const accessExpiresIn = this.config.get<string>('JWT_ACCESS_EXPIRES_IN') || '15m';
     const accessToken = await this.jwt.signAsync(
       { sub: user.id, username: user.username, role: user.role },
@@ -96,13 +102,15 @@ export class AuthService {
     return { id, secret };
   }
 
-  private publicUser(user: User) {
+  private publicUser(user: User & { pointOfSale: PointOfSale | null }) {
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       username: user.username,
       role: user.role,
+      pointOfSaleId: user.pointOfSaleId,
+      pointOfSale: user.pointOfSale,
       documentSuffix: user.documentSuffix,
       isActive: user.isActive,
       createdAt: user.createdAt,

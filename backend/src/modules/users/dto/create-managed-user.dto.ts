@@ -2,6 +2,11 @@ import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateManagedUserDto {
   @IsString()
+  @MinLength(1)
+  @MaxLength(191)
+  pointOfSaleId: string;
+
+  @IsString()
   @MinLength(3)
   @MaxLength(50)
   username: string;

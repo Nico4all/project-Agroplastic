@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, Power, UserCog } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Power, Store, UserCog } from 'lucide-react';
 import { FormEvent, useState } from 'react';
-import { usersApi } from '../api/resources';
+import { pointsOfSaleApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { User } from '../types';
-import { Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal, Spinner, useToast } from '../ui/components';
+import { Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal, Select, Spinner, useToast } from '../ui/components';
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -17,7 +17,7 @@ export function UsersPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', username: '', password: '', documentSuffix: '' });
+  const [form, setForm] = useState({ name: '', username: '', password: '', documentSuffix: '', pointOfSaleId: '' });
   const [error, setError] = useState('');
   const [statusUser, setStatusUser] = useState<User | null>(null);
   const [passwordUser, setPasswordUser] = useState<User | null>(null);
@@ -26,8 +26,13 @@ export function UsersPage() {
   const [nameUser, setNameUser] = useState<User | null>(null);
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
+  const [pointOfSaleUser, setPointOfSaleUser] = useState<User | null>(null);
+  const [pointOfSaleId, setPointOfSaleId] = useState('');
+  const [pointOfSaleError, setPointOfSaleError] = useState('');
   const isAdmin = user?.role === 'ADMIN';
   const { data = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
+  const { data: pointsOfSale = [] } = useQuery({ queryKey: ['points-of-sale'], queryFn: pointsOfSaleApi.list, enabled: isAdmin });
+  const activePointsOfSale = pointsOfSale.filter((item) => item.isActive);
 
   const create = useMutation({
     mutationFn: usersApi.create,
@@ -35,7 +40,7 @@ export function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast('Usuario creado');
       setModalOpen(false);
-      setForm({ name: '', username: '', password: '', documentSuffix: '' });
+      setForm({ name: '', username: '', password: '', documentSuffix: '', pointOfSaleId: '' });
     },
     onError: (err) => setError(getApiError(err, 'No se pudo crear el usuario')),
   });
@@ -73,6 +78,20 @@ export function UsersPage() {
     onError: (err) => setNameError(getApiError(err, 'No se pudo actualizar el nombre')),
   });
 
+  const updatePointOfSale = useMutation({
+    mutationFn: ({ id, nextPointOfSaleId }: { id: string; nextPointOfSaleId: string }) =>
+      usersApi.update(id, { pointOfSaleId: nextPointOfSaleId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['points-of-sale'] });
+      toast('Punto de venta actualizado');
+      setPointOfSaleUser(null);
+      setPointOfSaleId('');
+      setPointOfSaleError('');
+    },
+    onError: (err) => setPointOfSaleError(getApiError(err, 'No se pudo actualizar el punto de venta')),
+  });
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
@@ -89,6 +108,19 @@ export function UsersPage() {
     setNameUser(item);
     setName(item.name);
     setNameError('');
+  }
+
+  function openPointOfSaleModal(item: User) {
+    setPointOfSaleUser(item);
+    setPointOfSaleId(item.pointOfSaleId || '');
+    setPointOfSaleError('');
+  }
+
+  function submitPointOfSale(event: FormEvent) {
+    event.preventDefault();
+    setPointOfSaleError('');
+    if (!pointOfSaleUser || !pointOfSaleId) return;
+    updatePointOfSale.mutate({ id: pointOfSaleUser.id, nextPointOfSaleId: pointOfSaleId });
   }
 
   function submitName(event: FormEvent) {
@@ -118,7 +150,7 @@ export function UsersPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Usuarios</h1>
-          <p className="text-sm text-mute">Usuarios de bodega con acceso por usuario y contrasena.</p>
+          <p className="text-sm text-mute">Usuarios operativos asignados a un punto de venta.</p>
         </div>
         <Button onClick={() => { setError(''); setModalOpen(true); }}>
           <Plus className="h-4 w-4" /> Nuevo
@@ -130,12 +162,13 @@ export function UsersPage() {
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[1050px] text-sm">
               <thead className="bg-paper text-left text-xs uppercase text-mute">
                 <tr>
                   <th className="px-4 py-3">Nombre</th>
                   <th className="px-4 py-3">Usuario</th>
                   <th className="px-4 py-3">Rol</th>
+                  <th className="px-4 py-3">Punto de venta</th>
                   <th className="px-4 py-3">Sufijo documentos</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
@@ -152,11 +185,15 @@ export function UsersPage() {
                     </td>
                     <td className="px-4 py-3">{item.username}</td>
                     <td className="px-4 py-3">{item.role === 'ADMIN' ? 'Administrador' : 'Bodega'}</td>
+                    <td className="px-4 py-3">{item.pointOfSale?.name || '-'}</td>
                     <td className="px-4 py-3 font-mono font-semibold">{item.documentSuffix}</td>
                     <td className="px-4 py-3">{item.isActive ? 'Activo' : 'Inactivo'}</td>
                     <td className="px-4 py-3">
                       {item.role === 'BODEGA' ? (
                         <div className="flex justify-end gap-2">
+                          <Button variant="secondary" className="px-3 py-1.5" onClick={() => openPointOfSaleModal(item)}>
+                            <Store className="h-4 w-4" /> Punto de venta
+                          </Button>
                           <Button variant="secondary" className="px-3 py-1.5" onClick={() => openNameModal(item)}>
                             <Pencil className="h-4 w-4" /> Nombre
                           </Button>
@@ -197,10 +234,37 @@ export function UsersPage() {
           <Field label="Sufijo de documentos" hint="Ejemplo: CALI producira CALI-1, CALI-2, etc.">
             <Input required maxLength={50} value={form.documentSuffix} onChange={(event) => setForm({ ...form, documentSuffix: event.target.value })} />
           </Field>
+          <Field label="Punto de venta">
+            <Select required value={form.pointOfSaleId} onChange={(event) => setForm({ ...form, pointOfSaleId: event.target.value })}>
+              <option value="">Selecciona un punto de venta</option>
+              {activePointsOfSale.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.code}</option>)}
+            </Select>
+          </Field>
+          {!activePointsOfSale.length && <p className="rounded-lg bg-gold/10 px-3 py-2 text-sm font-medium text-ink">Debes crear un punto de venta activo antes de crear usuarios.</p>}
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Creando...' : 'Crear usuario'}</Button>
+            <Button type="submit" disabled={create.isPending || !activePointsOfSale.length}>{create.isPending ? 'Creando...' : 'Crear usuario'}</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(pointOfSaleUser)}
+        onClose={() => { if (!updatePointOfSale.isPending) setPointOfSaleUser(null); }}
+        title={`Asignar punto de venta${pointOfSaleUser ? ` - ${pointOfSaleUser.name}` : ''}`}
+      >
+        <form onSubmit={submitPointOfSale} className="space-y-4">
+          <Field label="Punto de venta">
+            <Select required autoFocus value={pointOfSaleId} onChange={(event) => setPointOfSaleId(event.target.value)}>
+              <option value="">Selecciona un punto de venta</option>
+              {activePointsOfSale.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.code}</option>)}
+            </Select>
+          </Field>
+          {pointOfSaleError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{pointOfSaleError}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setPointOfSaleUser(null)} disabled={updatePointOfSale.isPending}>Cancelar</Button>
+            <Button type="submit" disabled={updatePointOfSale.isPending || !pointOfSaleId}>{updatePointOfSale.isPending ? 'Guardando...' : 'Guardar asignacion'}</Button>
           </div>
         </form>
       </Modal>

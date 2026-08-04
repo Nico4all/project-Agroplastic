@@ -7,6 +7,7 @@ import {
   Package,
   ReceiptText,
   ShoppingCart,
+  Store,
   Users,
   UserSquare2,
   X,
@@ -37,7 +38,10 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     { to: '/products', label: 'Productos', icon: Package },
     { to: '/clients', label: 'Clientes', icon: UserSquare2 },
     { to: '/categories', label: 'Categorias', icon: FolderTree },
-    ...(user?.role === 'ADMIN' ? [{ to: '/users', label: 'Usuarios', icon: Users }] : []),
+    ...(user?.role === 'ADMIN' ? [
+      { to: '/points-of-sale', label: 'Puntos de venta', icon: Store },
+      { to: '/users', label: 'Usuarios', icon: Users },
+    ] : []),
   ], [user?.role]);
 
   return (
@@ -82,7 +86,7 @@ export function Layout() {
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-sm font-semibold text-white">{user?.name}</p>
           <p className="truncate text-[11px] text-white/50">
-            {user?.role === 'ADMIN' ? 'Administrador' : `Bodega - ${user?.documentSuffix || ''}`}
+            {user?.role === 'ADMIN' ? 'Administrador' : user?.pointOfSale?.name || 'Sin punto de venta'}
           </p>
         </div>
       </div>

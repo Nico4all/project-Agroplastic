@@ -10,6 +10,7 @@ import {
   PaginatedResult,
   Order,
   OrderPaymentMethod,
+  PointOfSale,
   Product,
   Transaction,
   Transfer,
@@ -77,8 +78,16 @@ export const historyApi = {
 
 export const usersApi = {
   list: async () => (await api.get<User[]>('/users')).data,
-  create: async (payload: { username: string; password: string; name: string; documentSuffix: string }) => (await api.post<User>('/users', payload)).data,
-  update: async (id: string, payload: { name?: string; isActive?: boolean; password?: string }) => (await api.patch<User>(`/users/${id}`, payload)).data,
+  create: async (payload: { username: string; password: string; name: string; documentSuffix: string; pointOfSaleId: string }) => (await api.post<User>('/users', payload)).data,
+  update: async (id: string, payload: { name?: string; isActive?: boolean; password?: string; pointOfSaleId?: string }) => (await api.patch<User>(`/users/${id}`, payload)).data,
+};
+
+export const pointsOfSaleApi = {
+  list: async () => (await api.get<PointOfSale[]>('/points-of-sale')).data,
+  create: async (payload: { name: string; code: string; city?: string; address?: string }) =>
+    (await api.post<PointOfSale>('/points-of-sale', payload)).data,
+  update: async (id: string, payload: { name?: string; code?: string; city?: string; address?: string; isActive?: boolean }) =>
+    (await api.patch<PointOfSale>(`/points-of-sale/${id}`, payload)).data,
 };
 
 export const productsApi = {
