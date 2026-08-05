@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Layers3, Pencil, Percent, Plus, Search } from 'lucide-react';
+import { Download, Layers3, Pencil, Percent, Plus, Search } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { pointsOfSaleApi, priceListApi, suppliersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { PriceListProduct } from '../types';
 import { Button, Card, EmptyState, Field, Input, Modal, Select, Spinner, Toggle, useToast } from '../ui/components';
+import { downloadBlob } from '../utils/download';
 import { money } from '../utils/format';
 import { isAdminRole, isSuperAdminRole } from '../utils/roles';
 
@@ -304,6 +305,7 @@ export function PriceListProductsPage() {
   const [editing, setEditing] = useState<PriceListProduct | null>(null);
   const [adjusting, setAdjusting] = useState<PriceListProduct | null>(null);
   const [bulkAdjustmentOpen, setBulkAdjustmentOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [adjustedPrices, setAdjustedPrices] = useState({ primaryPrice: '', secondaryPrice: '' });
   const [adjustmentApplied, setAdjustmentApplied] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -404,6 +406,32 @@ export function PriceListProductsPage() {
     setError('');
     setBulkAdjustmentOpen(true);
   };
+  const exportExcel = async () => {
+    const exportPointOfSaleId = isAdmin ? pointOfSaleId : undefined;
+    const pointOfSaleName = isAdmin
+      ? points.find((point) => point.id === pointOfSaleId)?.name
+      : user?.pointOfSale?.name;
+    if (!pointOfSaleName || (isAdmin && !pointOfSaleId)) {
+      toast('Selecciona un punto de venta para exportar', 'error');
+      return;
+    }
+    setExporting(true);
+    try {
+      const blob = await priceListApi.exportExcel(exportPointOfSaleId);
+      const dateParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).formatToParts(new Date());
+      const dateValues = Object.fromEntries(dateParts.map((part) => [part.type, part.value]));
+      const date = `${dateValues.year}-${dateValues.month}-${dateValues.day}`;
+      const safePointName = pointOfSaleName.replace(/[\\/:*?"<>|]/g, '-');
+      downloadBlob(blob, `Listado de precios - ${safePointName} - ${date}.xlsx`);
+      toast('Listado de precios generado');
+    } catch (err) {
+      toast(apiError(err, 'No se pudo generar el Excel'), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
   const savePercentageAdjustment = async () => {
     if (!adjusting || !adjustmentApplied) return;
     await update.mutateAsync({
@@ -442,7 +470,7 @@ export function PriceListProductsPage() {
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-extrabold tracking-tight">Lista de precios</h1><p className="text-sm text-mute">Catálogo independiente de los productos usados en pedidos.</p></div>
-        {canEdit && <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={!pointOfSaleId} title={pointOfSaleId ? 'Ajustar varios productos' : 'Selecciona un punto de venta'} onClick={openBulkAdjustment}><Percent className="h-4 w-4" /> Ajuste masivo</Button><Button variant="secondary" onClick={() => setCategoryModalOpen(true)}><Layers3 className="h-4 w-4" /> Categoría</Button><Button onClick={openCreate}><Plus className="h-4 w-4" /> Producto</Button></div>}
+        <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={exporting || (isAdmin && !pointOfSaleId)} title={isAdmin && !pointOfSaleId ? 'Selecciona un punto de venta' : 'Generar Excel por categorías'} onClick={exportExcel}><Download className="h-4 w-4" /> {exporting ? 'Generando...' : 'Excel'}</Button>{canEdit && <><Button variant="secondary" disabled={!pointOfSaleId} title={pointOfSaleId ? 'Ajustar varios productos' : 'Selecciona un punto de venta'} onClick={openBulkAdjustment}><Percent className="h-4 w-4" /> Ajuste masivo</Button><Button variant="secondary" onClick={() => setCategoryModalOpen(true)}><Layers3 className="h-4 w-4" /> Categoría</Button><Button onClick={openCreate}><Plus className="h-4 w-4" /> Producto</Button></>}</div>
       </div>
 
       <Card className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { Workbook, Worksheet } from 'exceljs';
 import { isAdminRole } from '../../common/helpers/roles';
 import { cleanDisplayText, normalizeDescription } from '../../common/helpers/normalization';
 import { PrismaService } from '../prisma/prisma.service';
@@ -85,6 +86,165 @@ export class PriceListService {
         secondaryPriceNote: price?.secondaryPriceNote ?? product.defaultSecondaryNote,
       };
     });
+  }
+
+  async exportProductsExcel(userId: string, query: QueryPriceListProductsDto) {
+    const actor = await this.users.getActiveUser(userId);
+    const pointOfSaleId = actor.role === UserRole.BODEGA ? actor.pointOfSaleId : query.pointOfSaleId;
+    if (!pointOfSaleId) throw new BadRequestException('Selecciona el punto de venta que deseas exportar');
+    if (!isAdminRole(actor.role) && query.pointOfSaleId && query.pointOfSaleId !== actor.pointOfSaleId) {
+      throw new BadRequestException('No puedes exportar precios de otro punto de venta');
+    }
+    const point = await this.prisma.pointOfSale.findUnique({ where: { id: pointOfSaleId } });
+    if (!point) throw new NotFoundException('Punto de venta no encontrado');
+
+    const products = await this.products(userId, { pointOfSaleId, isActive: true });
+    if (!products.length) throw new BadRequestException('No hay productos activos para exportar');
+    const productsByCategory = new Map<string, typeof products>();
+    products.forEach((product) => {
+      const categoryProducts = productsByCategory.get(product.category.name) ?? [];
+      categoryProducts.push(product);
+      productsByCategory.set(product.category.name, categoryProducts);
+    });
+
+    const date = this.bogotaDate();
+    const workbook = new Workbook();
+    workbook.creator = 'AgroPlastick';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+    workbook.subject = `Lista de precios de ${point.name}`;
+    workbook.title = `Listado de precios - ${point.name} - ${date}`;
+    const usedSheetNames = new Set<string>();
+    productsByCategory.forEach((categoryProducts, categoryName) => {
+      const sheetName = this.uniqueSheetName(categoryName, usedSheetNames);
+      const worksheet = workbook.addWorksheet(sheetName, {
+        views: [{ state: 'frozen', ySplit: 3 }],
+        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      });
+      this.populatePriceSheet(worksheet, categoryName, point.name, date, categoryProducts);
+    });
+
+    const output = await workbook.xlsx.writeBuffer();
+    const safePointName = point.name.replace(/[\\/:*?"<>|]/g, '-').trim();
+    return {
+      buffer: Buffer.from(output),
+      filename: `Listado de precios - ${safePointName} - ${date}.xlsx`,
+    };
+  }
+
+  private populatePriceSheet(
+    worksheet: Worksheet,
+    categoryName: string,
+    pointOfSaleName: string,
+    date: string,
+    products: Awaited<ReturnType<PriceListService['products']>>,
+  ) {
+    const includeMeasure = products.some((product) => Boolean(product.measure));
+    const includePrimaryNote = products.some((product) => Boolean(product.primaryPriceNote));
+    const includeSecondaryNote = products.some((product) => Boolean(product.secondaryPriceNote));
+    const primaryLabels = [...new Set(products.map((product) => product.primaryPriceLabel.trim()).filter(Boolean))];
+    const secondaryLabels = [...new Set(products.map((product) => product.secondaryPriceLabel.trim()).filter(Boolean))];
+    const primaryHeader = primaryLabels.length === 1 ? primaryLabels[0] : 'VALOR PRINCIPAL';
+    const secondaryHeader = secondaryLabels.length === 1 ? secondaryLabels[0] : 'VALOR SECUNDARIO';
+    const columns = [
+      { key: 'supplier', header: 'PROVEEDOR', width: 24 },
+      { key: 'reference', header: 'REFERENCIA', width: 58 },
+      ...(includeMeasure ? [{ key: 'measure', header: 'MEDIDA', width: 18 }] : []),
+      { key: 'presentation', header: 'PRESENTACIÓN', width: 28 },
+      { key: 'primaryPrice', header: primaryHeader, width: 20 },
+      ...(includePrimaryNote ? [{ key: 'primaryNote', header: 'ANOTACIÓN PRINCIPAL', width: 24 }] : []),
+      { key: 'secondaryPrice', header: secondaryHeader, width: 20 },
+      ...(includeSecondaryNote ? [{ key: 'secondaryNote', header: 'ANOTACIÓN SECUNDARIA', width: 24 }] : []),
+    ];
+    worksheet.columns = columns.map((column) => ({ key: column.key, width: column.width }));
+    const lastColumn = worksheet.getColumn(columns.length).letter;
+    worksheet.mergeCells(`A1:${lastColumn}1`);
+    worksheet.mergeCells(`A2:${lastColumn}2`);
+    worksheet.getCell('A1').value = `LISTADO DE PRECIOS - ${pointOfSaleName.toLocaleUpperCase('es-CO')} - ${date}`;
+    worksheet.getCell('A2').value = categoryName.toLocaleUpperCase('es-CO');
+    worksheet.getRow(3).values = columns.map((column) => column.header);
+
+    const titleFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFF00' } };
+    [worksheet.getRow(1), worksheet.getRow(2), worksheet.getRow(3)].forEach((row) => {
+      row.fill = titleFill;
+      row.font = { name: 'Arial', bold: true, color: { argb: 'FF000000' } };
+      row.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    });
+    worksheet.getRow(1).font = { name: 'Arial', bold: true, size: 16 };
+    worksheet.getRow(2).font = { name: 'Arial', bold: true, size: 14 };
+    worksheet.getRow(1).height = 25;
+    worksheet.getRow(2).height = 23;
+    worksheet.getRow(3).height = 28;
+
+    const supplierColors = ['FFFF3D00', 'FFC6E6F7', 'FFD9EAD3', 'FFFCE5CD', 'FFD9D2E9'];
+    let supplierIndex = -1;
+    let previousSupplier = '';
+    products.forEach((product) => {
+      if (product.supplier.name !== previousSupplier) {
+        supplierIndex += 1;
+        previousSupplier = product.supplier.name;
+      }
+      const row = worksheet.addRow({
+        supplier: product.supplier.name,
+        reference: product.reference,
+        ...(includeMeasure ? { measure: product.measure || '' } : {}),
+        presentation: product.presentation || '',
+        primaryPrice: product.primaryPrice ?? null,
+        ...(includePrimaryNote ? { primaryNote: product.primaryPriceNote || null } : {}),
+        secondaryPrice: product.secondaryPrice ?? null,
+        ...(includeSecondaryNote ? { secondaryNote: product.secondaryPriceNote || null } : {}),
+      });
+      row.font = { name: 'Arial', size: 10 };
+      row.alignment = { vertical: 'middle', wrapText: true };
+      row.height = 22;
+      const supplierCell = row.getCell('supplier');
+      supplierCell.font = { name: 'Arial', size: 10, bold: true };
+      supplierCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: supplierColors[supplierIndex % supplierColors.length] } };
+      ['primaryPrice', 'secondaryPrice'].forEach((key) => {
+        const cell = row.getCell(key);
+        cell.numFmt = '"$" #,##0';
+        cell.font = { name: 'Arial', size: 10, bold: true };
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      });
+      if (product.primaryPriceNote) row.getCell('primaryPrice').note = product.primaryPriceNote;
+      if (product.secondaryPriceNote) row.getCell('secondaryPrice').note = product.secondaryPriceNote;
+    });
+
+    worksheet.autoFilter = { from: 'A3', to: `${lastColumn}${worksheet.rowCount}` };
+    for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber);
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF222222' } },
+          left: { style: 'thin', color: { argb: 'FF222222' } },
+          bottom: { style: 'thin', color: { argb: 'FF222222' } },
+          right: { style: 'thin', color: { argb: 'FF222222' } },
+        };
+      });
+    }
+    worksheet.properties.defaultRowHeight = 20;
+    worksheet.pageSetup.margins = { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 };
+  }
+
+  private uniqueSheetName(categoryName: string, usedNames: Set<string>) {
+    const base = (categoryName.replace(/[\\/*?:\[\]]/g, ' ').replace(/\s+/g, ' ').trim() || 'Categoría').slice(0, 31);
+    let name = base;
+    let suffix = 2;
+    while (usedNames.has(name.toLocaleLowerCase('es-CO'))) {
+      const ending = ` ${suffix}`;
+      name = `${base.slice(0, 31 - ending.length)}${ending}`;
+      suffix += 1;
+    }
+    usedNames.add(name.toLocaleLowerCase('es-CO'));
+    return name;
+  }
+
+  private bogotaDate() {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
   }
 
   async createProduct(userId: string, dto: CreatePriceListProductDto) {

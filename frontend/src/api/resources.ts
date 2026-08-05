@@ -112,6 +112,11 @@ export const priceListApi = {
     (await api.post<PriceListCategory>('/price-list/categories', payload)).data,
   products: async (params?: Record<string, unknown>) =>
     (await api.get<PriceListProduct[]>('/price-list/products', { params })).data,
+  exportExcel: async (pointOfSaleId?: string) =>
+    (await api.get('/price-list/products/export/excel', {
+      params: pointOfSaleId ? { pointOfSaleId } : undefined,
+      responseType: 'blob',
+    })).data as Blob,
   createProduct: async (payload: {
     categoryId: string;
     supplierId: string;
