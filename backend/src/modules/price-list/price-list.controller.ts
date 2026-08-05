@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { BulkUpdatePriceListPricesDto } from './dto/bulk-update-price-list-prices.dto';
 import { CreatePriceListCategoryDto } from './dto/create-price-list-category.dto';
 import { CreatePriceListProductDto } from './dto/create-price-list-product.dto';
 import { QueryPriceListProductsDto } from './dto/query-price-list-products.dto';
@@ -30,6 +31,11 @@ export class PriceListController {
   @Post('products')
   createProduct(@CurrentUser() user: { userId: string }, @Body() dto: CreatePriceListProductDto) {
     return this.priceList.createProduct(user.userId, dto);
+  }
+
+  @Patch('products/prices/bulk')
+  bulkUpdatePrices(@CurrentUser() user: { userId: string }, @Body() dto: BulkUpdatePriceListPricesDto) {
+    return this.priceList.bulkUpdatePrices(user.userId, dto);
   }
 
   @Patch('products/:id')

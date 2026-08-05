@@ -5,6 +5,7 @@ import { isAdminRole } from '../../common/helpers/roles';
 import { cleanDisplayText, normalizeDescription } from '../../common/helpers/normalization';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { BulkUpdatePriceListPricesDto } from './dto/bulk-update-price-list-prices.dto';
 import { CreatePriceListCategoryDto } from './dto/create-price-list-category.dto';
 import { CreatePriceListProductDto } from './dto/create-price-list-product.dto';
 import { QueryPriceListProductsDto } from './dto/query-price-list-products.dto';
@@ -129,6 +130,63 @@ export class PriceListService {
       }
       return product;
     });
+  }
+
+  async bulkUpdatePrices(userId: string, dto: BulkUpdatePriceListPricesDto) {
+    await this.users.ensureSuperAdmin(userId);
+    const point = await this.prisma.pointOfSale.findUnique({ where: { id: dto.pointOfSaleId } });
+    if (!point) throw new NotFoundException('Punto de venta no encontrado');
+
+    const productIds = dto.updates.map((update) => update.productId);
+    if (new Set(productIds).size !== productIds.length) {
+      throw new BadRequestException('No puedes enviar el mismo producto más de una vez');
+    }
+    if (dto.updates.some((update) => update.primaryPrice === undefined && update.secondaryPrice === undefined)) {
+      throw new BadRequestException('Cada producto debe incluir al menos un precio para actualizar');
+    }
+
+    const products = await this.prisma.priceListProduct.findMany({
+      where: { id: { in: productIds } },
+      select: {
+        id: true,
+        defaultPrimaryPrice: true,
+        defaultSecondaryPrice: true,
+        defaultPrimaryNote: true,
+        defaultSecondaryNote: true,
+      },
+    });
+    if (products.length !== productIds.length) {
+      throw new NotFoundException('Uno o más productos de la lista no existen');
+    }
+    const productsById = new Map(products.map((product) => [product.id, product]));
+
+    await this.prisma.$transaction(async (tx) => {
+      await Promise.all(dto.updates.map((update) => {
+        const product = productsById.get(update.productId)!;
+        return tx.pointOfSalePrice.upsert({
+          where: {
+            pointOfSaleId_productId: {
+              pointOfSaleId: dto.pointOfSaleId,
+              productId: update.productId,
+            },
+          },
+          create: {
+            pointOfSaleId: dto.pointOfSaleId,
+            productId: update.productId,
+            primaryPrice: update.primaryPrice === undefined ? product.defaultPrimaryPrice : update.primaryPrice,
+            secondaryPrice: update.secondaryPrice === undefined ? product.defaultSecondaryPrice : update.secondaryPrice,
+            primaryPriceNote: product.defaultPrimaryNote,
+            secondaryPriceNote: product.defaultSecondaryNote,
+          },
+          update: {
+            ...(update.primaryPrice !== undefined ? { primaryPrice: update.primaryPrice } : {}),
+            ...(update.secondaryPrice !== undefined ? { secondaryPrice: update.secondaryPrice } : {}),
+          },
+        });
+      }));
+    }, { timeout: 30000 });
+
+    return { updated: dto.updates.length, pointOfSaleId: dto.pointOfSaleId };
   }
 
   async updateProduct(userId: string, id: string, dto: UpdatePriceListProductDto) {

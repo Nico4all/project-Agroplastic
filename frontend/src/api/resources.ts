@@ -129,6 +129,10 @@ export const priceListApi = {
     'categoryId' | 'supplierId' | 'reference' | 'measure' | 'presentation' | 'primaryPriceLabel' | 'secondaryPriceLabel' |
     'isActive' | 'pointOfSaleId' | 'primaryPrice' | 'secondaryPrice' | 'primaryPriceNote' | 'secondaryPriceNote'>>
   ) => (await api.patch<PriceListProduct>(`/price-list/products/${id}`, payload)).data,
+  bulkUpdatePrices: async (payload: {
+    pointOfSaleId: string;
+    updates: Array<{ productId: string; primaryPrice?: number | null; secondaryPrice?: number | null }>;
+  }) => (await api.patch<{ updated: number; pointOfSaleId: string }>('/price-list/products/prices/bulk', payload)).data,
 };
 
 export const ordersApi = {
