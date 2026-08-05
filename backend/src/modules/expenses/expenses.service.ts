@@ -3,6 +3,7 @@ import { Prisma, RecordStatus, User, UserRole } from '@prisma/client';
 import { decimalToNumber } from '../../common/helpers/money';
 import { buildCashReceiptPdf, buildExcelHtml, buildListPdf, formatDate, formatMoney } from '../../common/helpers/reports';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole } from '../../common/helpers/roles';
 import { UsersService } from '../users/users.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { QueryExpensesDto } from './dto/query-expenses.dto';
@@ -49,6 +50,7 @@ export class ExpensesService {
 
   async create(userId: string, dto: CreateExpenseDto) {
     const actor = await this.users.getActiveUser(userId);
+    if (!actor.pointOfSaleId) throw new BadRequestException('Debes tener un punto de venta asignado para registrar egresos');
     const category = await this.prisma.expenseCategory.findFirst({ where: { id: dto.categoryId, isActive: true } });
     if (!category) throw new BadRequestException('Categoria no encontrada o inactiva');
     if (dto.appliesRetention && (dto.retentionAmount ?? 0) > dto.amount) {
@@ -56,19 +58,21 @@ export class ExpensesService {
     }
 
     const expense = await this.prisma.$transaction(async (transaction) => {
-      const numberedUser = await transaction.user.update({
-        where: { id: actor.id },
+      const numberedPointOfSale = await transaction.pointOfSale.update({
+        where: { id: actor.pointOfSaleId! },
         data: { nextExpenseNumber: { increment: 1 } },
-        select: { documentSuffix: true, nextExpenseNumber: true },
+        select: { documentPrefix: true, nextExpenseNumber: true, isActive: true },
       });
-      const documentSequence = numberedUser.nextExpenseNumber - 1;
+      if (!numberedPointOfSale.isActive) throw new BadRequestException('El punto de venta asignado esta inactivo');
+      const documentSequence = numberedPointOfSale.nextExpenseNumber - 1;
 
       return transaction.expense.create({
         data: {
           userId: actor.id,
+          pointOfSaleId: actor.pointOfSaleId,
           categoryId: category.id,
           documentSequence,
-          documentNumber: `${numberedUser.documentSuffix}-${documentSequence}`,
+          documentNumber: `${numberedPointOfSale.documentPrefix}-${documentSequence}`,
           paidTo: dto.paidTo.trim(),
           amount: new Prisma.Decimal(dto.amount),
           appliesRetention: dto.appliesRetention,
@@ -87,7 +91,7 @@ export class ExpensesService {
 
   async void(userId: string, id: string, dto: VoidExpenseDto) {
     const actor = await this.users.getActiveUser(userId);
-    const current = await this.findAccessible(actor, id);
+    const current = await this.findAccessible(actor, id, true);
     if (current.status === RecordStatus.VOID) return this.serialize(current);
 
     const updated = await this.prisma.expense.update({
@@ -254,9 +258,16 @@ export class ExpensesService {
     });
   }
 
-  private async findAccessible(actor: User, id: string) {
+  private async findAccessible(actor: User, id: string, requireOwnership = false) {
     const row = await this.prisma.expense.findFirst({
-      where: { id, ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }) },
+      where: {
+        id,
+        ...(isAdminRole(actor.role)
+          ? {}
+          : requireOwnership
+            ? { userId: actor.id }
+            : { pointOfSaleId: actor.pointOfSaleId! }),
+      },
       include: this.includeRelations(),
     });
     if (!row) throw new NotFoundException('Egreso no encontrado');
@@ -275,7 +286,7 @@ export class ExpensesService {
 
   private buildWhere(actor: User, query: QueryExpensesDto): Prisma.ExpenseWhereInput {
     const and: Prisma.ExpenseWhereInput[] = [];
-    if (actor.role !== UserRole.ADMIN) and.push({ userId: actor.id });
+    if (!isAdminRole(actor.role)) and.push({ pointOfSaleId: actor.pointOfSaleId! });
     if (query.search) {
       and.push({
         OR: [
@@ -294,7 +305,7 @@ export class ExpensesService {
 
     return {
       ...(and.length ? { AND: and } : {}),
-      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(isAdminRole(actor.role) && query.userId ? { userId: query.userId } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(Object.keys(date).length ? { expenseDate: date } : {}),
@@ -303,7 +314,8 @@ export class ExpensesService {
 
   private includeRelations() {
     return {
-      user: { select: { id: true, name: true, username: true, documentSuffix: true, role: true } },
+      user: { select: { id: true, name: true, username: true, role: true } },
+      pointOfSale: { select: { id: true, name: true, code: true, documentPrefix: true } },
       category: { select: { id: true, name: true } },
       voidedBy: { select: { id: true, name: true, username: true } },
     };

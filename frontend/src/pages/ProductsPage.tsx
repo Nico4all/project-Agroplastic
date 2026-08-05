@@ -5,6 +5,7 @@ import { productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Product } from '../types';
 import { Button, Card, EmptyState, Field, Input, Modal, Spinner, Toggle, useToast } from '../ui/components';
+import { isAdminRole } from '../utils/roles';
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -16,7 +17,7 @@ export function ProductsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [description, setDescription] = useState('');

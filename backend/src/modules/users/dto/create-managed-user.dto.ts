@@ -21,8 +21,4 @@ export class CreateManagedUserDto {
   @MaxLength(100)
   name: string;
 
-  @IsString()
-  @MinLength(1)
-  @MaxLength(50)
-  documentSuffix: string;
 }

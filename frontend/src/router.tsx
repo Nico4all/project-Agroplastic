@@ -11,6 +11,8 @@ import { OrdersPage } from './pages/OrdersPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { PointsOfSalePage } from './pages/PointsOfSalePage';
 import { UsersPage } from './pages/UsersPage';
+import { PriceListProductsPage } from './pages/PriceListProductsPage';
+import { SuppliersPage } from './pages/SuppliersPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <AuthPage /> },
@@ -27,6 +29,8 @@ export const router = createBrowserRouter([
       { path: 'expenses', element: <ExpensesPage /> },
       { path: 'orders', element: <OrdersPage /> },
       { path: 'products', element: <ProductsPage /> },
+      { path: 'price-list', element: <PriceListProductsPage /> },
+      { path: 'suppliers', element: <SuppliersPage /> },
       { path: 'clients', element: <ClientsPage /> },
       { path: 'categories', element: <CategoriesPage /> },
       { path: 'points-of-sale', element: <PointsOfSalePage /> },

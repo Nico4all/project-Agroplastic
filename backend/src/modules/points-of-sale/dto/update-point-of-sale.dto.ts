@@ -15,6 +15,12 @@ export class UpdatePointOfSaleDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
+  @MaxLength(50)
+  documentPrefix?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(100)
   city?: string;
 

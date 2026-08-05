@@ -33,7 +33,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: true,
         pointOfSaleId: true,
         pointOfSale: { select: { id: true, name: true, code: true, city: true, address: true, isActive: true } },
-        documentSuffix: true,
         isActive: true,
       },
     });
@@ -46,7 +45,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: user.role,
       pointOfSaleId: user.pointOfSaleId,
       pointOfSale: user.pointOfSale,
-      documentSuffix: user.documentSuffix,
     };
   }
 }

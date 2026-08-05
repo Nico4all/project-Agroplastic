@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { readFile, readdir } = require('fs/promises');
 const { join } = require('path');
+const argon2 = require('argon2');
 
 const prisma = new PrismaClient();
 const dataDirectory = join(__dirname, 'seed-data');
@@ -18,6 +19,10 @@ function normalizeDescription(value) {
 
 function normalizeIdentityDocument(value) {
   return value.trim().toLocaleUpperCase('es-CO').replace(/[^A-Z0-9]/g, '');
+}
+
+function normalizeUsername(value) {
+  return value.trim().toLocaleLowerCase('es-CO');
 }
 
 function parseTsv(contents) {
@@ -57,14 +62,125 @@ async function seedProducts() {
   });
 }
 
+async function seedBootstrapUser(role, rawUsername, password, name) {
+  const username = normalizeUsername(rawUsername);
+  const existing = await prisma.user.findUnique({ where: { username } });
+  const passwordHash = await argon2.hash(password);
+  if (existing) {
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: { role, isActive: true, passwordHash, emailVerifiedAt: existing.emailVerifiedAt || new Date() },
+    });
+    return;
+  }
+  await prisma.user.create({
+    data: {
+      name,
+      username,
+      email: `${username}@local.agroplastic`,
+      passwordHash,
+      role,
+      emailVerifiedAt: new Date(),
+    },
+  });
+}
+
+async function seedBootstrapUsers() {
+  await seedBootstrapUser(
+    'ADMIN',
+    process.env.ADMIN_USERNAME || 'admin',
+    process.env.ADMIN_PASSWORD || 'admin12345',
+    process.env.ADMIN_NAME || 'Administrador',
+  );
+  await seedBootstrapUser(
+    'SUPERADMIN',
+    process.env.SUPERADMIN_USERNAME || 'superadmin',
+    process.env.SUPERADMIN_PASSWORD || '123456789',
+    process.env.SUPERADMIN_NAME || 'Superadministrador',
+  );
+}
+
+async function seedPriceList() {
+  const data = JSON.parse(await readFile(join(dataDirectory, 'price-list-products.json'), 'utf8'));
+  await prisma.priceListCategory.createMany({
+    data: data.categories.map((name, sortOrder) => ({
+      name,
+      normalizedName: normalizeDescription(name),
+      sortOrder,
+    })),
+    skipDuplicates: true,
+  });
+  await prisma.supplier.createMany({
+    data: data.suppliers.map((name) => ({ name, normalizedName: normalizeDescription(name) })),
+    skipDuplicates: true,
+  });
+
+  const [categories, suppliers] = await Promise.all([
+    prisma.priceListCategory.findMany(),
+    prisma.supplier.findMany(),
+  ]);
+  const categoryIds = new Map(categories.map((category) => [category.normalizedName, category.id]));
+  const supplierIds = new Map(suppliers.map((supplier) => [supplier.normalizedName, supplier.id]));
+
+  await prisma.priceListProduct.createMany({
+    data: data.products.map((product) => ({
+      sourceKey: product.sourceKey,
+      categoryId: categoryIds.get(normalizeDescription(product.category)),
+      supplierId: supplierIds.get(normalizeDescription(product.supplier)),
+      reference: product.reference,
+      measure: product.measure,
+      presentation: product.presentation,
+      primaryPriceLabel: product.primaryPriceLabel,
+      secondaryPriceLabel: product.secondaryPriceLabel,
+      defaultPrimaryPrice: product.primaryPrice,
+      defaultSecondaryPrice: product.secondaryPrice,
+      defaultPrimaryNote: product.primaryPriceNote,
+      defaultSecondaryNote: product.secondaryPriceNote,
+      sourceSheet: product.sourceSheet,
+      sourceRow: product.sourceRow,
+    })),
+    skipDuplicates: true,
+  });
+
+  const [points, products] = await Promise.all([
+    prisma.pointOfSale.findMany({ select: { id: true } }),
+    prisma.priceListProduct.findMany({
+      select: {
+        id: true,
+        defaultPrimaryPrice: true,
+        defaultSecondaryPrice: true,
+        defaultPrimaryNote: true,
+        defaultSecondaryNote: true,
+      },
+    }),
+  ]);
+  if (points.length && products.length) {
+    await prisma.pointOfSalePrice.createMany({
+      data: points.flatMap((point) => products.map((product) => ({
+        pointOfSaleId: point.id,
+        productId: product.id,
+        primaryPrice: product.defaultPrimaryPrice,
+        secondaryPrice: product.defaultSecondaryPrice,
+        primaryPriceNote: product.defaultPrimaryNote,
+        secondaryPriceNote: product.defaultSecondaryNote,
+      }))),
+      skipDuplicates: true,
+    });
+  }
+}
+
 async function main() {
+  await seedBootstrapUsers();
   await seedClients();
   await seedProducts();
-  const [clients, products] = await Promise.all([
+  await seedPriceList();
+  const [clients, products, priceListProducts, suppliers] = await Promise.all([
     prisma.client.count(),
     prisma.product.count(),
+    prisma.priceListProduct.count(),
+    prisma.supplier.count(),
   ]);
-  console.log(`Seed completado: ${clients} clientes y ${products} productos disponibles.`);
+  console.log(`Seed completado: ${clients} clientes, ${products} productos de pedidos, ${priceListProducts} productos de lista y ${suppliers} proveedores.`);
 }
 
 main()

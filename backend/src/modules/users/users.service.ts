@@ -2,8 +2,8 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { ConfigService } from '@nestjs/config';
 import { Prisma, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { normalizeDocumentSuffix } from '../../common/helpers/normalization';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole } from '../../common/helpers/roles';
 import { CreateManagedUserDto } from './dto/create-managed-user.dto';
 import { UpdateManagedUserDto } from './dto/update-managed-user.dto';
 
@@ -25,9 +25,8 @@ export class UsersService {
         role: true,
         pointOfSaleId: true,
         pointOfSale: {
-          select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+          select: { id: true, name: true, code: true, documentPrefix: true, city: true, address: true, isActive: true },
         },
-        documentSuffix: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -48,9 +47,8 @@ export class UsersService {
         role: true,
         pointOfSaleId: true,
         pointOfSale: {
-          select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+          select: { id: true, name: true, code: true, documentPrefix: true, city: true, address: true, isActive: true },
         },
-        documentSuffix: true,
         isActive: true,
         createdAt: true,
       },
@@ -75,8 +73,6 @@ export class UsersService {
     if (!pointOfSale.isActive) throw new BadRequestException('El punto de venta seleccionado esta inactivo');
 
     const passwordHash = await argon2.hash(dto.password);
-    const documentSuffix = normalizeDocumentSuffix(dto.documentSuffix);
-    if (!documentSuffix) throw new BadRequestException('El sufijo de documentos es obligatorio');
     const name = dto.name.trim();
     if (!name) throw new BadRequestException('El nombre es obligatorio');
 
@@ -89,7 +85,6 @@ export class UsersService {
           passwordHash,
           role: UserRole.BODEGA,
           pointOfSaleId: pointOfSale.id,
-          documentSuffix,
           emailVerifiedAt: new Date(),
         },
         select: {
@@ -99,16 +94,15 @@ export class UsersService {
           role: true,
           pointOfSaleId: true,
           pointOfSale: {
-            select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+            select: { id: true, name: true, code: true, documentPrefix: true, city: true, address: true, isActive: true },
           },
-          documentSuffix: true,
           isActive: true,
           createdAt: true,
         },
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('El usuario o el sufijo de documentos ya existe');
+        throw new ConflictException('El usuario ya existe');
       }
       throw error;
     }
@@ -123,8 +117,10 @@ export class UsersService {
 
     const managedUser = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!managedUser) throw new NotFoundException('Usuario no encontrado');
-    if (managedUser.role !== UserRole.BODEGA) {
-      throw new ForbiddenException('La cuenta administradora no se puede modificar desde esta pantalla');
+    if (managedUser.role !== UserRole.BODEGA && (
+      dto.name !== undefined || dto.isActive !== undefined || dto.password !== undefined
+    )) {
+      throw new ForbiddenException('De la cuenta administradora solo puedes cambiar el punto de venta');
     }
 
     const effectivePointOfSaleId = dto.pointOfSaleId ?? managedUser.pointOfSaleId;
@@ -163,9 +159,8 @@ export class UsersService {
           role: true,
           pointOfSaleId: true,
           pointOfSale: {
-            select: { id: true, name: true, code: true, city: true, address: true, isActive: true },
+            select: { id: true, name: true, code: true, documentPrefix: true, city: true, address: true, isActive: true },
           },
-          documentSuffix: true,
           isActive: true,
           createdAt: true,
         },
@@ -185,7 +180,16 @@ export class UsersService {
   async ensureAdmin(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.isActive) throw new NotFoundException('Usuario no encontrado');
-    if (user.role !== UserRole.ADMIN) throw new ForbiddenException('Solo el administrador puede realizar esta accion');
+    if (!isAdminRole(user.role)) throw new ForbiddenException('Solo un administrador puede realizar esta accion');
+    return user;
+  }
+
+  async ensureSuperAdmin(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) throw new NotFoundException('Usuario no encontrado');
+    if (user.role !== UserRole.SUPERADMIN) {
+      throw new ForbiddenException('Solo el superadministrador puede editar la lista de precios');
+    }
     return user;
   }
 

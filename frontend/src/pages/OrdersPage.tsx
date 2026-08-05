@@ -7,6 +7,7 @@ import { Order, OrderPaymentMethod } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
+import { isAdminRole } from '../utils/roles';
 
 type OrderLineForm = { productId: string; quantity: string; unitPrice: string };
 const emptyLine = (): OrderLineForm => ({ productId: '', quantity: '1', unitPrice: '' });
@@ -21,7 +22,7 @@ export function OrdersPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);

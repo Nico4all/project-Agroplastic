@@ -5,12 +5,13 @@ import { expenseCategoriesApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { ExpenseCategory } from '../types';
 import { Button, Card, EmptyState, Field, Input, Modal, Spinner, Toggle, useToast } from '../ui/components';
+import { isAdminRole } from '../utils/roles';
 
 export function CategoriesPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const { data = [], isLoading } = useQuery({ queryKey: ['expense-categories'], queryFn: expenseCategoriesApi.list });
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ExpenseCategory | null>(null);

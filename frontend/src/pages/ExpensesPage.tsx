@@ -7,6 +7,7 @@ import { CashExpense, RecordStatus } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, Select, Spinner, useToast } from '../ui/components';
 import { downloadBlob, openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
+import { isAdminRole } from '../utils/roles';
 
 const statusLabels: Record<RecordStatus, string> = {
   ACTIVE: 'Activo',
@@ -47,7 +48,7 @@ export function ExpensesPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', categoryId: '', status: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
@@ -269,7 +270,7 @@ export function ExpensesPage() {
                         <Button variant="ghost" className="px-2" title="Ver PDF" onClick={() => openReceipt(item.id)}>
                           <FileText className="h-4 w-4" />
                         </Button>
-                        {item.status === 'ACTIVE' && (
+                        {item.status === 'ACTIVE' && (isAdmin || item.userId === user?.id) && (
                           <Button variant="ghost" className="px-2 text-expense" title="Anular" onClick={() => setVoiding(item)}>
                             <Ban className="h-4 w-4" />
                           </Button>

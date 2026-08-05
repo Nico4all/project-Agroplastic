@@ -6,6 +6,7 @@ import { dashboardApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Card, EmptyState, Field, Input, Select, Spinner } from '../ui/components';
 import { dateInput, money } from '../utils/format';
+import { isAdminRole } from '../utils/roles';
 
 function labelIncomeType(value: string) {
   return value === 'ADVANCE' ? 'Anticipo' : 'Pago cartera';
@@ -21,7 +22,7 @@ export function DashboardPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [userId, setUserId] = useState('');
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
 
   const params = useMemo(
     () => Object.fromEntries(Object.entries({ fromDate, toDate, userId }).filter(([, value]) => value !== '')),
@@ -133,7 +134,7 @@ export function DashboardPage() {
                 <div key={group.user.id}>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="font-semibold">{group.user.name}</p>
-                    <span className="text-xs text-mute">{group.user.documentSuffix || group.user.username}</span>
+                    <span className="text-xs text-mute">{group.user.pointOfSale?.documentPrefix || group.user.username}</span>
                   </div>
                   <ul className="divide-y divide-line">
                     {group.items.map((item: any) => (
@@ -164,7 +165,7 @@ export function DashboardPage() {
                 <div key={group.user.id}>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="font-semibold">{group.user.name}</p>
-                    <span className="text-xs text-mute">{group.user.documentSuffix || group.user.username}</span>
+                    <span className="text-xs text-mute">{group.user.pointOfSale?.documentPrefix || group.user.username}</span>
                   </div>
                   <ul className="divide-y divide-line">
                     {group.items.map((item: any) => (

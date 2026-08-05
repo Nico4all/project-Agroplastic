@@ -1,10 +1,12 @@
 import {
   BarChart3,
+  Building2,
   FolderTree,
   HandCoins,
   LogOut,
   Menu,
   Package,
+  Tags,
   ReceiptText,
   ShoppingCart,
   Store,
@@ -15,6 +17,7 @@ import {
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useAuth } from '../state/AuthContext';
+import { isAdminRole } from '../utils/roles';
 
 function Brand() {
   return (
@@ -30,38 +33,48 @@ function Brand() {
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
-  const nav = useMemo(() => [
+  const mainNav = useMemo(() => [
     { to: '/', label: 'Panel', icon: BarChart3, end: true },
     { to: '/incomes', label: 'Ingresos', icon: HandCoins },
     { to: '/expenses', label: 'Egresos', icon: ReceiptText },
     { to: '/orders', label: 'Pedidos', icon: ShoppingCart },
-    { to: '/products', label: 'Productos', icon: Package },
+    { to: '/products', label: 'Productos pedidos', icon: Package },
     { to: '/clients', label: 'Clientes', icon: UserSquare2 },
     { to: '/categories', label: 'Categorias', icon: FolderTree },
-    ...(user?.role === 'ADMIN' ? [
+  ], []);
+  const catalogNav = useMemo(() => [
+    { to: '/price-list', label: 'Productos', icon: Tags },
+    { to: '/suppliers', label: 'Proveedores', icon: Building2 },
+  ], []);
+  const adminNav = useMemo(() => isAdminRole(user?.role) ? [
       { to: '/points-of-sale', label: 'Puntos de venta', icon: Store },
       { to: '/users', label: 'Usuarios', icon: Users },
-    ] : []),
-  ], [user?.role]);
+    ] : [], [user?.role]);
+
+  const renderLinks = (items: typeof mainNav) => items.map(({ to, label, icon: Icon, end }) => (
+    <NavLink
+      key={to}
+      to={to}
+      end={end}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+          isActive ? 'bg-white/10 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white'
+        }`
+      }
+    >
+      <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+      {label}
+    </NavLink>
+  ));
 
   return (
     <nav className="mt-8 flex flex-1 flex-col gap-1">
-      {nav.map(({ to, label, icon: Icon, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-              isActive ? 'bg-white/10 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white'
-            }`
-          }
-        >
-          <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
-          {label}
-        </NavLink>
-      ))}
+      {renderLinks(mainNav)}
+      <p className="mt-5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">Lista de precios</p>
+      {renderLinks(catalogNav)}
+      {adminNav.length > 0 && <p className="mt-5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">Administracion</p>}
+      {renderLinks(adminNav)}
     </nav>
   );
 }
@@ -86,7 +99,7 @@ export function Layout() {
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-sm font-semibold text-white">{user?.name}</p>
           <p className="truncate text-[11px] text-white/50">
-            {user?.role === 'ADMIN' ? 'Administrador' : user?.pointOfSale?.name || 'Sin punto de venta'}
+            {user?.role === 'SUPERADMIN' ? 'Superadministrador' : user?.role === 'ADMIN' ? 'Administrador' : user?.pointOfSale?.name || 'Sin punto de venta'}
           </p>
         </div>
       </div>

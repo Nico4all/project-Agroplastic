@@ -10,6 +10,10 @@ const pointOfSaleSelect = {
   id: true,
   name: true,
   code: true,
+  documentPrefix: true,
+  nextIncomeNumber: true,
+  nextExpenseNumber: true,
+  nextOrderNumber: true,
   city: true,
   address: true,
   isActive: true,
@@ -36,12 +40,39 @@ export class PointsOfSaleService {
   async create(requestUserId: string, dto: CreatePointOfSaleDto) {
     await this.users.ensureAdmin(requestUserId);
     const data = this.normalizeData(dto);
-    if (!data.name || !data.code) throw new BadRequestException('El nombre y el codigo son obligatorios');
+    if (!data.name || !data.code || !data.documentPrefix) {
+      throw new BadRequestException('El nombre, el codigo y el prefijo son obligatorios');
+    }
+    const counters = await this.nextCountersForPrefix(data.documentPrefix);
 
     try {
-      return await this.prisma.pointOfSale.create({
-        data: { ...data, name: data.name, code: data.code },
-        select: pointOfSaleSelect,
+      return await this.prisma.$transaction(async (tx) => {
+        const pointOfSale = await tx.pointOfSale.create({
+          data: { ...data, ...counters, name: data.name!, code: data.code!, documentPrefix: data.documentPrefix! },
+          select: pointOfSaleSelect,
+        });
+        const products = await tx.priceListProduct.findMany({
+          select: {
+            id: true,
+            defaultPrimaryPrice: true,
+            defaultSecondaryPrice: true,
+            defaultPrimaryNote: true,
+            defaultSecondaryNote: true,
+          },
+        });
+        if (products.length) {
+          await tx.pointOfSalePrice.createMany({
+            data: products.map((product) => ({
+              pointOfSaleId: pointOfSale.id,
+              productId: product.id,
+              primaryPrice: product.defaultPrimaryPrice,
+              secondaryPrice: product.defaultSecondaryPrice,
+              primaryPriceNote: product.defaultPrimaryNote,
+              secondaryPriceNote: product.defaultSecondaryNote,
+            })),
+          });
+        }
+        return pointOfSale;
       });
     } catch (error) {
       this.handleUniqueError(error);
@@ -62,11 +93,20 @@ export class PointsOfSaleService {
     }
 
     const normalized = this.normalizeData(dto);
+    const prefixChanged = normalized.documentPrefix !== undefined && normalized.documentPrefix !== current.documentPrefix;
+    const historicalCounters = prefixChanged
+      ? await this.nextCountersForPrefix(normalized.documentPrefix!)
+      : null;
     try {
       return await this.prisma.pointOfSale.update({
         where: { id },
         data: {
           ...normalized,
+          ...(historicalCounters ? {
+            nextIncomeNumber: Math.max(current.nextIncomeNumber, historicalCounters.nextIncomeNumber),
+            nextExpenseNumber: Math.max(current.nextExpenseNumber, historicalCounters.nextExpenseNumber),
+            nextOrderNumber: Math.max(current.nextOrderNumber, historicalCounters.nextOrderNumber),
+          } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         },
         select: pointOfSaleSelect,
@@ -80,15 +120,18 @@ export class PointsOfSaleService {
   private normalizeData(dto: CreatePointOfSaleDto | UpdatePointOfSaleDto) {
     const name = dto.name === undefined ? undefined : cleanDisplayText(dto.name);
     const code = dto.code === undefined ? undefined : normalizeDocumentSuffix(dto.code);
+    const documentPrefix = dto.documentPrefix === undefined ? undefined : normalizeDocumentSuffix(dto.documentPrefix);
     const city = dto.city === undefined ? undefined : cleanDisplayText(dto.city) || null;
     const address = dto.address === undefined ? undefined : cleanDisplayText(dto.address) || null;
 
     if (dto.name !== undefined && !name) throw new BadRequestException('El nombre es obligatorio');
     if (dto.code !== undefined && !code) throw new BadRequestException('El codigo es obligatorio');
+    if (dto.documentPrefix !== undefined && !documentPrefix) throw new BadRequestException('El prefijo es obligatorio');
 
     return {
       ...(name !== undefined ? { name } : {}),
       ...(code !== undefined ? { code } : {}),
+      ...(documentPrefix !== undefined ? { documentPrefix } : {}),
       ...(city !== undefined ? { city } : {}),
       ...(address !== undefined ? { address } : {}),
     };
@@ -96,7 +139,21 @@ export class PointsOfSaleService {
 
   private handleUniqueError(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw new ConflictException('Ya existe un punto de venta con ese codigo');
+      throw new ConflictException('Ya existe un punto de venta con ese codigo o prefijo');
     }
+  }
+
+  private async nextCountersForPrefix(documentPrefix: string) {
+    const documentNumber = { startsWith: `${documentPrefix}-` };
+    const [income, expense, order] = await Promise.all([
+      this.prisma.income.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
+      this.prisma.expense.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
+      this.prisma.order.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
+    ]);
+    return {
+      nextIncomeNumber: (income._max.documentSequence ?? 0) + 1,
+      nextExpenseNumber: (expense._max.documentSequence ?? 0) + 1,
+      nextOrderNumber: (order._max.documentSequence ?? 0) + 1,
+    };
   }
 }

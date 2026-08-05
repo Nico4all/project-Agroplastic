@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma, UserRole } from '@prisma/client';
 import { cleanDisplayText, normalizeIdentityDocument } from '../../common/helpers/normalization';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole } from '../../common/helpers/roles';
 import { UsersService } from '../users/users.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { QueryClientsDto } from './dto/query-clients.dto';
@@ -21,7 +22,7 @@ export class ClientsService {
       this.prisma.client.count({ where }),
       this.prisma.client.findMany({
         where,
-        include: { createdBy: { select: { id: true, name: true, username: true, documentSuffix: true } } },
+        include: { createdBy: { select: { id: true, name: true, username: true } } },
         orderBy: { fullName: 'asc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
@@ -55,7 +56,7 @@ export class ClientsService {
   async update(userId: string, id: string, dto: UpdateClientDto) {
     const actor = await this.users.getActiveUser(userId);
     const current = await this.findAccessible(actor, id);
-    if (actor.role !== UserRole.ADMIN && current.createdByUserId !== actor.id) {
+    if (!isAdminRole(actor.role) && current.createdByUserId !== actor.id) {
       throw new ForbiddenException('No puedes editar este cliente');
     }
     if (dto.fullName !== undefined && !cleanDisplayText(dto.fullName)) {

@@ -4,6 +4,7 @@ import { decimalToNumber } from '../../common/helpers/money';
 import { buildCashReceiptPdf, buildExcelHtml, buildListPdf, formatDate, formatMoney } from '../../common/helpers/reports';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole } from '../../common/helpers/roles';
 import { UsersService } from '../users/users.service';
 import { CreateIncomeDto } from './dto/create-income.dto';
 import { QueryIncomesDto } from './dto/query-incomes.dto';
@@ -51,25 +52,28 @@ export class IncomesService {
 
   async create(userId: string, dto: CreateIncomeDto) {
     const actor = await this.users.getActiveUser(userId);
+    if (!actor.pointOfSaleId) throw new BadRequestException('Debes tener un punto de venta asignado para registrar ingresos');
     const client = await this.clients.findAccessible(actor, dto.clientId);
     if (!client.isActive) throw new BadRequestException('El cliente esta inactivo');
 
     const income = await this.prisma.$transaction(async (transaction) => {
-      const numberedUser = await transaction.user.update({
-        where: { id: actor.id },
+      const numberedPointOfSale = await transaction.pointOfSale.update({
+        where: { id: actor.pointOfSaleId! },
         data: { nextIncomeNumber: { increment: 1 } },
-        select: { documentSuffix: true, nextIncomeNumber: true },
+        select: { documentPrefix: true, nextIncomeNumber: true, isActive: true },
       });
-      const documentSequence = numberedUser.nextIncomeNumber - 1;
+      if (!numberedPointOfSale.isActive) throw new BadRequestException('El punto de venta asignado esta inactivo');
+      const documentSequence = numberedPointOfSale.nextIncomeNumber - 1;
 
       return transaction.income.create({
         data: {
           userId: actor.id,
+          pointOfSaleId: actor.pointOfSaleId,
           clientId: client.id,
           clientName: client.fullName,
           clientDocument: client.identityDocument,
           documentSequence,
-          documentNumber: `${numberedUser.documentSuffix}-${documentSequence}`,
+          documentNumber: `${numberedPointOfSale.documentPrefix}-${documentSequence}`,
           type: dto.type,
           paymentMethod: dto.paymentMethod,
           amount: new Prisma.Decimal(dto.amount),
@@ -85,7 +89,7 @@ export class IncomesService {
 
   async void(userId: string, id: string, dto: VoidIncomeDto) {
     const actor = await this.users.getActiveUser(userId);
-    const current = await this.findAccessible(actor, id);
+    const current = await this.findAccessible(actor, id, true);
     if (current.status === RecordStatus.VOID) return this.serialize(current);
 
     const updated = await this.prisma.income.update({
@@ -200,9 +204,16 @@ export class IncomesService {
     });
   }
 
-  private async findAccessible(actor: User, id: string) {
+  private async findAccessible(actor: User, id: string, requireOwnership = false) {
     const row = await this.prisma.income.findFirst({
-      where: { id, ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }) },
+      where: {
+        id,
+        ...(isAdminRole(actor.role)
+          ? {}
+          : requireOwnership
+            ? { userId: actor.id }
+            : { pointOfSaleId: actor.pointOfSaleId! }),
+      },
       include: this.includeRelations(),
     });
     if (!row) throw new NotFoundException('Ingreso no encontrado');
@@ -221,7 +232,7 @@ export class IncomesService {
 
   private buildWhere(actor: User, query: QueryIncomesDto): Prisma.IncomeWhereInput {
     const and: Prisma.IncomeWhereInput[] = [];
-    if (actor.role !== UserRole.ADMIN) and.push({ userId: actor.id });
+    if (!isAdminRole(actor.role)) and.push({ pointOfSaleId: actor.pointOfSaleId! });
     if (query.search) {
       and.push({
         OR: [
@@ -239,7 +250,7 @@ export class IncomesService {
 
     return {
       ...(and.length ? { AND: and } : {}),
-      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(isAdminRole(actor.role) && query.userId ? { userId: query.userId } : {}),
       ...(query.clientId ? { clientId: query.clientId } : {}),
       ...(query.type ? { type: query.type } : {}),
       ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
@@ -250,7 +261,8 @@ export class IncomesService {
 
   private includeRelations() {
     return {
-      user: { select: { id: true, name: true, username: true, documentSuffix: true, role: true } },
+      user: { select: { id: true, name: true, username: true, role: true } },
+      pointOfSale: { select: { id: true, name: true, code: true, documentPrefix: true } },
       client: { select: { id: true, fullName: true, identityDocument: true } },
       voidedBy: { select: { id: true, name: true, username: true } },
     };

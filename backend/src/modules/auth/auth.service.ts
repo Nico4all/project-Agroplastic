@@ -16,7 +16,7 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    await this.ensureBootstrapAdmin();
+    await this.ensureBootstrapUsers();
 
     const username = this.normalizeUsername(dto.username);
     const user = await this.prisma.user.findUnique({ where: { username }, include: { pointOfSale: true } });
@@ -111,7 +111,6 @@ export class AuthService {
       role: user.role,
       pointOfSaleId: user.pointOfSaleId,
       pointOfSale: user.pointOfSale,
-      documentSuffix: user.documentSuffix,
       isActive: user.isActive,
       createdAt: user.createdAt,
     };
@@ -121,11 +120,23 @@ export class AuthService {
     return username.trim().toLowerCase();
   }
 
-  private async ensureBootstrapAdmin() {
-    const username = this.normalizeUsername(this.config.get<string>('ADMIN_USERNAME') || 'admin');
-    const password = this.config.get<string>('ADMIN_PASSWORD') || 'admin12345';
-    const name = this.config.get<string>('ADMIN_NAME') || 'Administrador';
-    const documentSuffix = this.config.get<string>('ADMIN_DOCUMENT_SUFFIX') || 'ADMIN';
+  private async ensureBootstrapUsers() {
+    await this.ensureBootstrapUser(
+      UserRole.ADMIN,
+      this.config.get<string>('ADMIN_USERNAME') || 'admin',
+      this.config.get<string>('ADMIN_PASSWORD') || 'admin12345',
+      this.config.get<string>('ADMIN_NAME') || 'Administrador',
+    );
+    await this.ensureBootstrapUser(
+      UserRole.SUPERADMIN,
+      this.config.get<string>('SUPERADMIN_USERNAME') || 'superadmin',
+      this.config.get<string>('SUPERADMIN_PASSWORD') || '123456789',
+      this.config.get<string>('SUPERADMIN_NAME') || 'Superadministrador',
+    );
+  }
+
+  private async ensureBootstrapUser(role: UserRole, rawUsername: string, password: string, name: string) {
+    const username = this.normalizeUsername(rawUsername);
     const email = `${username}@local.agroplastic`;
 
     const existing = await this.prisma.user.findUnique({ where: { username } });
@@ -137,18 +148,14 @@ export class AuthService {
         where: { id: existing.id },
         data: {
           name: existing.name || name,
-          role: UserRole.ADMIN,
+          role,
           isActive: true,
           passwordHash,
-          documentSuffix: existing.documentSuffix || documentSuffix,
           emailVerifiedAt: existing.emailVerifiedAt || new Date(),
         },
       });
       return;
     }
-
-    const adminCount = await this.prisma.user.count({ where: { role: UserRole.ADMIN } });
-    if (adminCount > 0) return;
 
     const passwordHash = await argon2.hash(password);
 
@@ -158,8 +165,7 @@ export class AuthService {
         username,
         email,
         passwordHash,
-        role: UserRole.ADMIN,
-        documentSuffix,
+        role,
         emailVerifiedAt: new Date(),
       },
     });

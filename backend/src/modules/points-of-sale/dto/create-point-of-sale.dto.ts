@@ -11,6 +11,11 @@ export class CreatePointOfSaleDto {
   @MaxLength(50)
   code: string;
 
+  @IsString()
+  @MinLength(1)
+  @MaxLength(50)
+  documentPrefix: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(100)

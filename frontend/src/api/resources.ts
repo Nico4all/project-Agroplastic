@@ -15,6 +15,9 @@ import {
   Transaction,
   Transfer,
   User,
+  Supplier,
+  PriceListCategory,
+  PriceListProduct,
 } from '../types';
 import { api } from './client';
 
@@ -78,15 +81,15 @@ export const historyApi = {
 
 export const usersApi = {
   list: async () => (await api.get<User[]>('/users')).data,
-  create: async (payload: { username: string; password: string; name: string; documentSuffix: string; pointOfSaleId: string }) => (await api.post<User>('/users', payload)).data,
+  create: async (payload: { username: string; password: string; name: string; pointOfSaleId: string }) => (await api.post<User>('/users', payload)).data,
   update: async (id: string, payload: { name?: string; isActive?: boolean; password?: string; pointOfSaleId?: string }) => (await api.patch<User>(`/users/${id}`, payload)).data,
 };
 
 export const pointsOfSaleApi = {
   list: async () => (await api.get<PointOfSale[]>('/points-of-sale')).data,
-  create: async (payload: { name: string; code: string; city?: string; address?: string }) =>
+  create: async (payload: { name: string; code: string; documentPrefix: string; city?: string; address?: string }) =>
     (await api.post<PointOfSale>('/points-of-sale', payload)).data,
-  update: async (id: string, payload: { name?: string; code?: string; city?: string; address?: string; isActive?: boolean }) =>
+  update: async (id: string, payload: { name?: string; code?: string; documentPrefix?: string; city?: string; address?: string; isActive?: boolean }) =>
     (await api.patch<PointOfSale>(`/points-of-sale/${id}`, payload)).data,
 };
 
@@ -94,6 +97,37 @@ export const productsApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<Product[]>('/products', { params })).data,
   create: async (payload: { description: string }) => (await api.post<Product>('/products', payload)).data,
   update: async (id: string, payload: { description?: string; isActive?: boolean }) => (await api.patch<Product>(`/products/${id}`, payload)).data,
+};
+
+export const suppliersApi = {
+  list: async () => (await api.get<Supplier[]>('/suppliers')).data,
+  create: async (payload: { name: string }) => (await api.post<Supplier>('/suppliers', payload)).data,
+  update: async (id: string, payload: { name?: string; isActive?: boolean }) =>
+    (await api.patch<Supplier>(`/suppliers/${id}`, payload)).data,
+};
+
+export const priceListApi = {
+  categories: async () => (await api.get<PriceListCategory[]>('/price-list/categories')).data,
+  createCategory: async (payload: { name: string }) =>
+    (await api.post<PriceListCategory>('/price-list/categories', payload)).data,
+  products: async (params?: Record<string, unknown>) =>
+    (await api.get<PriceListProduct[]>('/price-list/products', { params })).data,
+  createProduct: async (payload: {
+    categoryId: string;
+    supplierId: string;
+    reference: string;
+    measure?: string;
+    presentation?: string;
+    primaryPriceLabel: string;
+    secondaryPriceLabel: string;
+    primaryPrice?: number;
+    secondaryPrice?: number;
+    primaryPriceNote?: string;
+    secondaryPriceNote?: string;
+  }) => (await api.post<PriceListProduct>('/price-list/products', payload)).data,
+  updateProduct: async (id: string, payload: Partial<Pick<PriceListProduct,
+    'categoryId' | 'supplierId' | 'reference' | 'measure' | 'presentation' | 'primaryPriceLabel' | 'secondaryPriceLabel' | 'isActive'>>
+  ) => (await api.patch<PriceListProduct>(`/price-list/products/${id}`, payload)).data,
 };
 
 export const ordersApi = {

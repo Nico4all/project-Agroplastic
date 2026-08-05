@@ -6,7 +6,6 @@ export type AuthenticatedUser = {
   username: string;
   name: string;
   role: UserRole;
-  documentSuffix: string;
   pointOfSaleId: string | null;
 };
 

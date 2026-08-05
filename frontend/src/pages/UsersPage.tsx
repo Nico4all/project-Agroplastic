@@ -5,6 +5,7 @@ import { pointsOfSaleApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { User } from '../types';
 import { Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal, Select, Spinner, useToast } from '../ui/components';
+import { isAdminRole } from '../utils/roles';
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -17,7 +18,7 @@ export function UsersPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', username: '', password: '', documentSuffix: '', pointOfSaleId: '' });
+  const [form, setForm] = useState({ name: '', username: '', password: '', pointOfSaleId: '' });
   const [error, setError] = useState('');
   const [statusUser, setStatusUser] = useState<User | null>(null);
   const [passwordUser, setPasswordUser] = useState<User | null>(null);
@@ -29,7 +30,7 @@ export function UsersPage() {
   const [pointOfSaleUser, setPointOfSaleUser] = useState<User | null>(null);
   const [pointOfSaleId, setPointOfSaleId] = useState('');
   const [pointOfSaleError, setPointOfSaleError] = useState('');
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const { data = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
   const { data: pointsOfSale = [] } = useQuery({ queryKey: ['points-of-sale'], queryFn: pointsOfSaleApi.list, enabled: isAdmin });
   const activePointsOfSale = pointsOfSale.filter((item) => item.isActive);
@@ -40,7 +41,7 @@ export function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast('Usuario creado');
       setModalOpen(false);
-      setForm({ name: '', username: '', password: '', documentSuffix: '', pointOfSaleId: '' });
+      setForm({ name: '', username: '', password: '', pointOfSaleId: '' });
     },
     onError: (err) => setError(getApiError(err, 'No se pudo crear el usuario')),
   });
@@ -162,14 +163,13 @@ export function UsersPage() {
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1050px] text-sm">
+            <table className="w-full min-w-[950px] text-sm">
               <thead className="bg-paper text-left text-xs uppercase text-mute">
                 <tr>
                   <th className="px-4 py-3">Nombre</th>
                   <th className="px-4 py-3">Usuario</th>
                   <th className="px-4 py-3">Rol</th>
                   <th className="px-4 py-3">Punto de venta</th>
-                  <th className="px-4 py-3">Sufijo documentos</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
@@ -184,9 +184,8 @@ export function UsersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">{item.username}</td>
-                    <td className="px-4 py-3">{item.role === 'ADMIN' ? 'Administrador' : 'Bodega'}</td>
+                    <td className="px-4 py-3">{item.role === 'SUPERADMIN' ? 'Superadministrador' : item.role === 'ADMIN' ? 'Administrador' : 'Bodega'}</td>
                     <td className="px-4 py-3">{item.pointOfSale?.name || '-'}</td>
-                    <td className="px-4 py-3 font-mono font-semibold">{item.documentSuffix}</td>
                     <td className="px-4 py-3">{item.isActive ? 'Activo' : 'Inactivo'}</td>
                     <td className="px-4 py-3">
                       {item.role === 'BODEGA' ? (
@@ -209,7 +208,12 @@ export function UsersPage() {
                           </Button>
                         </div>
                       ) : (
-                        <div className="text-right text-xs font-medium text-mute">Cuenta protegida</div>
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-xs font-medium text-mute">Cuenta protegida</span>
+                          <Button variant="secondary" className="px-3 py-1.5" onClick={() => openPointOfSaleModal(item)}>
+                            <Store className="h-4 w-4" /> Punto de venta
+                          </Button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -230,9 +234,6 @@ export function UsersPage() {
           </Field>
           <Field label="Contrasena">
             <Input required type="password" minLength={6} maxLength={128} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
-          </Field>
-          <Field label="Sufijo de documentos" hint="Ejemplo: CALI producira CALI-1, CALI-2, etc.">
-            <Input required maxLength={50} value={form.documentSuffix} onChange={(event) => setForm({ ...form, documentSuffix: event.target.value })} />
           </Field>
           <Field label="Punto de venta">
             <Select required value={form.pointOfSaleId} onChange={(event) => setForm({ ...form, pointOfSaleId: event.target.value })}>

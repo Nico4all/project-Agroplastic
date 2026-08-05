@@ -2,8 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, RecordStatus, User, UserRole } from '@prisma/client';
 import { decimalToNumber } from '../../common/helpers/money';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole } from '../../common/helpers/roles';
 import { UsersService } from '../users/users.service';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
+
+type DashboardUser = {
+  id: string;
+  name: string;
+  username: string;
+  pointOfSale: { documentPrefix: string } | null;
+};
 
 @Injectable()
 export class DashboardService {
@@ -55,7 +63,7 @@ export class DashboardService {
     });
     const users = await this.prisma.user.findMany({
       where: { id: { in: rows.map((row) => row.userId) } },
-      select: { id: true, name: true, username: true, documentSuffix: true },
+      select: { id: true, name: true, username: true, pointOfSale: { select: { documentPrefix: true } } },
     });
     return rows
       .map((row) => {
@@ -64,14 +72,14 @@ export class DashboardService {
           userId: row.userId,
           name: user?.name || 'Usuario',
           username: user?.username || '',
-          documentSuffix: user?.documentSuffix || '',
+          documentPrefix: user?.pointOfSale?.documentPrefix || '',
           value: decimalToNumber(row._sum.amount),
         };
       })
       .sort((a, b) => b.value - a.value);
   }
 
-  private async getRecentExpensesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'documentSuffix'>>, where: Prisma.ExpenseWhereInput) {
+  private async getRecentExpensesByUser(users: DashboardUser[], where: Prisma.ExpenseWhereInput) {
     const groups = await Promise.all(
       users.map(async (user) => {
         const items = await this.prisma.expense.findMany({
@@ -97,7 +105,7 @@ export class DashboardService {
     return groups.filter((group) => group.items.length);
   }
 
-  private async getRecentIncomesByUser(users: Array<Pick<User, 'id' | 'name' | 'username' | 'documentSuffix'>>, where: Prisma.IncomeWhereInput) {
+  private async getRecentIncomesByUser(users: DashboardUser[], where: Prisma.IncomeWhereInput) {
     const groups = await Promise.all(
       users.map(async (user) => {
         const items = await this.prisma.income.findMany({
@@ -125,15 +133,12 @@ export class DashboardService {
   }
 
   private async relevantUsers(actor: User, query: DashboardQueryDto) {
-    if (actor.role !== UserRole.ADMIN) {
-      return [{ id: actor.id, name: actor.name, username: actor.username, documentSuffix: actor.documentSuffix }];
-    }
     return this.prisma.user.findMany({
       where: {
-        role: UserRole.BODEGA,
-        ...(query.userId ? { id: query.userId } : {}),
+        ...(isAdminRole(actor.role) ? { role: UserRole.BODEGA } : { pointOfSaleId: actor.pointOfSaleId! }),
+        ...(isAdminRole(actor.role) && query.userId ? { id: query.userId } : {}),
       },
-      select: { id: true, name: true, username: true, documentSuffix: true },
+      select: { id: true, name: true, username: true, pointOfSale: { select: { documentPrefix: true } } },
       orderBy: { name: 'asc' },
     });
   }
@@ -148,16 +153,16 @@ export class DashboardService {
   private incomeWhere(actor: User, query: DashboardQueryDto, range: { from: Date; to: Date }): Prisma.IncomeWhereInput {
     return {
       incomeDate: { gte: range.from, lte: range.to },
-      ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }),
-      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(isAdminRole(actor.role) ? {} : { pointOfSaleId: actor.pointOfSaleId! }),
+      ...(isAdminRole(actor.role) && query.userId ? { userId: query.userId } : {}),
     };
   }
 
   private expenseWhere(actor: User, query: DashboardQueryDto, range: { from: Date; to: Date }): Prisma.ExpenseWhereInput {
     return {
       expenseDate: { gte: range.from, lte: range.to },
-      ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }),
-      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(isAdminRole(actor.role) ? {} : { pointOfSaleId: actor.pointOfSaleId! }),
+      ...(isAdminRole(actor.role) && query.userId ? { userId: query.userId } : {}),
     };
   }
 

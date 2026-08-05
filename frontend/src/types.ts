@@ -3,7 +3,7 @@ export type CategoryType = 'INCOME' | 'EXPENSE';
 export type TransactionType = 'INCOME' | 'EXPENSE';
 export type LoanType = 'RECEIVABLE' | 'PAYABLE';
 export type LoanStatus = 'OPEN' | 'PAID';
-export type UserRole = 'ADMIN' | 'BODEGA';
+export type UserRole = 'ADMIN' | 'BODEGA' | 'SUPERADMIN';
 export type IncomeType = 'ADVANCE' | 'RECEIVABLE_PAYMENT';
 export type PaymentMethod = 'CASH' | 'BANK';
 export type OrderPaymentMethod = 'CASH' | 'BANK' | 'CREDIT';
@@ -13,6 +13,10 @@ export type PointOfSale = {
   id: string;
   name: string;
   code: string;
+  documentPrefix: string;
+  nextIncomeNumber?: number;
+  nextExpenseNumber?: number;
+  nextOrderNumber?: number;
   city?: string | null;
   address?: string | null;
   isActive: boolean;
@@ -27,7 +31,6 @@ export type User = {
   role: UserRole;
   pointOfSaleId?: string | null;
   pointOfSale?: PointOfSale | null;
-  documentSuffix: string;
   isActive?: boolean;
   emailVerifiedAt?: string | null;
 };
@@ -103,7 +106,7 @@ export type Client = {
   fullName: string;
   identityDocument: string;
   isActive: boolean;
-  createdBy?: Pick<User, 'id' | 'name' | 'username' | 'documentSuffix'>;
+  createdBy?: Pick<User, 'id' | 'name' | 'username'>;
 };
 
 export type ExpenseCategory = {
@@ -115,6 +118,7 @@ export type ExpenseCategory = {
 export type CashIncome = {
   id: string;
   userId: string;
+  pointOfSaleId?: string | null;
   clientId: string;
   clientName: string;
   clientDocument: string;
@@ -129,13 +133,15 @@ export type CashIncome = {
   causedAt?: string | null;
   voidReason?: string | null;
   voidedAt?: string | null;
-  user?: Pick<User, 'id' | 'name' | 'username' | 'documentSuffix' | 'role'>;
+  user?: Pick<User, 'id' | 'name' | 'username' | 'role'>;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code' | 'documentPrefix'> | null;
   client?: Pick<Client, 'id' | 'fullName' | 'identityDocument'>;
 };
 
 export type CashExpense = {
   id: string;
   userId: string;
+  pointOfSaleId?: string | null;
   categoryId: string;
   documentSequence: number;
   documentNumber: string;
@@ -151,7 +157,8 @@ export type CashExpense = {
   causedAt?: string | null;
   voidReason?: string | null;
   voidedAt?: string | null;
-  user?: Pick<User, 'id' | 'name' | 'username' | 'documentSuffix' | 'role'>;
+  user?: Pick<User, 'id' | 'name' | 'username' | 'role'>;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code' | 'documentPrefix'> | null;
   category?: Pick<ExpenseCategory, 'id' | 'name'>;
 };
 
@@ -159,6 +166,40 @@ export type Product = {
   id: string;
   description: string;
   isActive: boolean;
+};
+
+export type Supplier = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  _count?: { products: number };
+};
+
+export type PriceListCategory = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+  _count?: { products: number };
+};
+
+export type PriceListProduct = {
+  id: string;
+  categoryId: string;
+  supplierId: string;
+  reference: string;
+  measure?: string | null;
+  presentation?: string | null;
+  primaryPriceLabel: string;
+  secondaryPriceLabel: string;
+  primaryPrice?: number | null;
+  secondaryPrice?: number | null;
+  primaryPriceNote?: string | null;
+  secondaryPriceNote?: string | null;
+  pointOfSaleId?: string | null;
+  isActive: boolean;
+  category: PriceListCategory;
+  supplier: Supplier;
 };
 
 export type OrderItem = {
@@ -173,6 +214,7 @@ export type OrderItem = {
 export type Order = {
   id: string;
   userId: string;
+  pointOfSaleId?: string | null;
   clientId: string;
   documentSequence: number;
   documentNumber: string;
@@ -185,7 +227,8 @@ export type Order = {
   totalAmount: number;
   invoicedAt?: string | null;
   createdAt: string;
-  user?: Pick<User, 'id' | 'name' | 'username' | 'documentSuffix' | 'role'>;
+  user?: Pick<User, 'id' | 'name' | 'username' | 'role'>;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code' | 'documentPrefix'> | null;
   client?: Pick<Client, 'id' | 'fullName' | 'identityDocument'>;
   items: OrderItem[];
 };

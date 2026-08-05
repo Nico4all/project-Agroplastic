@@ -5,8 +5,9 @@ import { pointsOfSaleApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { PointOfSale } from '../types';
 import { Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal, Spinner, useToast } from '../ui/components';
+import { isAdminRole } from '../utils/roles';
 
-const emptyForm = { name: '', code: '', city: '', address: '' };
+const emptyForm = { name: '', code: '', documentPrefix: '', city: '', address: '' };
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -18,7 +19,7 @@ export function PointsOfSalePage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PointOfSale | null>(null);
   const [statusItem, setStatusItem] = useState<PointOfSale | null>(null);
@@ -73,7 +74,13 @@ export function PointsOfSalePage() {
 
   function openEdit(item: PointOfSale) {
     setEditing(item);
-    setForm({ name: item.name, code: item.code, city: item.city || '', address: item.address || '' });
+    setForm({
+      name: item.name,
+      code: item.code,
+      documentPrefix: item.documentPrefix,
+      city: item.city || '',
+      address: item.address || '',
+    });
     setError('');
     setModalOpen(true);
   }
@@ -101,11 +108,12 @@ export function PointsOfSalePage() {
       {isLoading ? <Spinner /> : data.length ? (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-paper text-left text-xs uppercase text-mute">
                 <tr>
                   <th className="px-4 py-3">Punto de venta</th>
                   <th className="px-4 py-3">Codigo</th>
+                  <th className="px-4 py-3">Prefijo documentos</th>
                   <th className="px-4 py-3">Ciudad</th>
                   <th className="px-4 py-3">Direccion</th>
                   <th className="px-4 py-3">Usuarios</th>
@@ -120,6 +128,7 @@ export function PointsOfSalePage() {
                       <div className="flex items-center gap-2"><Store className="h-4 w-4 text-brand" /><span className="font-semibold">{item.name}</span></div>
                     </td>
                     <td className="px-4 py-3 font-mono font-semibold">{item.code}</td>
+                    <td className="px-4 py-3 font-mono font-semibold">{item.documentPrefix}</td>
                     <td className="px-4 py-3">{item.city || '-'}</td>
                     <td className="px-4 py-3">{item.address || '-'}</td>
                     <td className="px-4 py-3">{item._count?.users ?? 0}</td>
@@ -144,6 +153,9 @@ export function PointsOfSalePage() {
         <form onSubmit={submit} className="space-y-4">
           <Field label="Nombre"><Input required minLength={2} maxLength={100} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
           <Field label="Codigo" hint="Identificador corto, por ejemplo: CALI-NORTE."><Input required maxLength={50} value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></Field>
+          <Field label="Prefijo de documentos" hint="Se comparte entre todos los usuarios de este punto, por ejemplo: CALI.">
+            <Input required maxLength={50} value={form.documentPrefix} onChange={(event) => setForm({ ...form, documentPrefix: event.target.value })} />
+          </Field>
           <Field label="Ciudad"><Input maxLength={100} value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></Field>
           <Field label="Direccion"><Input maxLength={300} value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></Field>
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}

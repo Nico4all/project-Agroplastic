@@ -14,6 +14,8 @@ import { PrismaModule } from './modules/prisma/prisma.module';
 import { ProductsModule } from './modules/products/products.module';
 import { UsersModule } from './modules/users/users.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
+import { PriceListModule } from './modules/price-list/price-list.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
 
 const appBasePath = process.env.APP_BASE_PATH || '/caja-bodega';
 const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
@@ -36,6 +38,8 @@ const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
     IncomesModule,
     ExpensesModule,
     ProductsModule,
+    SuppliersModule,
+    PriceListModule,
     OrdersModule,
     DashboardModule,
   ],

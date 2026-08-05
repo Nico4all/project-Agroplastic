@@ -45,6 +45,7 @@ enum EmailCodePurpose {
 enum UserRole {
   ADMIN
   BODEGA
+  SUPERADMIN
 }
 
 enum IncomeType {
@@ -76,10 +77,6 @@ model User {
   passwordHash      String                  @map("password_hash")
   role              UserRole                @default(BODEGA)
   pointOfSaleId     String?                 @map("point_of_sale_id")
-  documentSuffix    String                  @unique @map("document_suffix")
-  nextIncomeNumber  Int                     @default(1) @map("next_income_number")
-  nextExpenseNumber Int                     @default(1) @map("next_expense_number")
-  nextOrderNumber   Int                     @default(1) @map("next_order_number")
   isActive          Boolean                 @default(true) @map("is_active")
   emailVerifiedAt   DateTime?               @map("email_verified_at")
   createdAt         DateTime                @default(now()) @map("created_at")
@@ -107,18 +104,99 @@ model User {
 }
 
 model PointOfSale {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  city      String?
-  address   String?  @db.VarChar(300)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  users     User[]
+  id                String             @id @default(uuid())
+  name              String
+  code              String             @unique
+  documentPrefix    String             @unique @map("document_prefix")
+  nextIncomeNumber  Int                @default(1) @map("next_income_number")
+  nextExpenseNumber Int                @default(1) @map("next_expense_number")
+  nextOrderNumber   Int                @default(1) @map("next_order_number")
+  city              String?
+  address           String?            @db.VarChar(300)
+  isActive          Boolean            @default(true) @map("is_active")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  users             User[]
+  incomes           Income[]
+  expenses          Expense[]
+  orders            Order[]
+  priceListPrices   PointOfSalePrice[]
 
   @@index([isActive])
   @@map("points_of_sale")
+}
+
+model Supplier {
+  id             String             @id @default(uuid())
+  name           String
+  normalizedName String             @unique @map("normalized_name")
+  isActive       Boolean            @default(true) @map("is_active")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  products       PriceListProduct[]
+
+  @@index([isActive])
+  @@map("suppliers")
+}
+
+model PriceListCategory {
+  id             String             @id @default(uuid())
+  name           String
+  normalizedName String             @unique @map("normalized_name")
+  sortOrder      Int                @default(0) @map("sort_order")
+  isActive       Boolean            @default(true) @map("is_active")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  products       PriceListProduct[]
+
+  @@index([isActive, sortOrder])
+  @@map("price_list_categories")
+}
+
+model PriceListProduct {
+  id                    String             @id @default(uuid())
+  sourceKey             String             @unique @map("source_key") @db.VarChar(600)
+  categoryId            String             @map("category_id")
+  supplierId            String             @map("supplier_id")
+  reference             String             @db.VarChar(500)
+  measure               String?            @db.VarChar(300)
+  presentation          String?            @db.VarChar(300)
+  primaryPriceLabel     String             @map("primary_price_label")
+  secondaryPriceLabel   String             @map("secondary_price_label")
+  defaultPrimaryPrice   Decimal?           @map("default_primary_price") @db.Decimal(14, 2)
+  defaultSecondaryPrice Decimal?           @map("default_secondary_price") @db.Decimal(14, 2)
+  defaultPrimaryNote    String?            @map("default_primary_note") @db.VarChar(300)
+  defaultSecondaryNote  String?            @map("default_secondary_note") @db.VarChar(300)
+  sourceSheet           String?            @map("source_sheet")
+  sourceRow             Int?               @map("source_row")
+  isActive              Boolean            @default(true) @map("is_active")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  category              PriceListCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplier              Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  prices                PointOfSalePrice[]
+
+  @@index([categoryId, isActive])
+  @@index([supplierId, isActive])
+  @@map("price_list_products")
+}
+
+model PointOfSalePrice {
+  id                 String           @id @default(uuid())
+  pointOfSaleId      String           @map("point_of_sale_id")
+  productId          String           @map("product_id")
+  primaryPrice       Decimal?         @map("primary_price") @db.Decimal(14, 2)
+  secondaryPrice     Decimal?         @map("secondary_price") @db.Decimal(14, 2)
+  primaryPriceNote   String?          @map("primary_price_note") @db.VarChar(300)
+  secondaryPriceNote String?          @map("secondary_price_note") @db.VarChar(300)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  pointOfSale        PointOfSale      @relation(fields: [pointOfSaleId], references: [id], onDelete: Cascade)
+  product            PriceListProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([pointOfSaleId, productId])
+  @@index([productId])
+  @@map("point_of_sale_prices")
 }
 
 model Client {
@@ -154,6 +232,7 @@ model ExpenseCategory {
 model Income {
   id               String        @id @default(uuid())
   userId           String        @map("user_id")
+  pointOfSaleId    String?       @map("point_of_sale_id")
   clientId         String        @map("client_id")
   clientName       String        @map("client_name")
   clientDocument   String        @map("client_document")
@@ -172,11 +251,12 @@ model Income {
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
   user             User          @relation("IncomeCreator", fields: [userId], references: [id], onDelete: Cascade)
+  pointOfSale      PointOfSale?  @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   client           Client        @relation(fields: [clientId], references: [id])
   voidedBy         User?         @relation("IncomeVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([userId, documentSequence])
   @@index([userId])
+  @@index([pointOfSaleId, documentSequence])
   @@index([clientId])
   @@index([type])
   @@index([paymentMethod])
@@ -189,6 +269,7 @@ model Income {
 model Expense {
   id                  String          @id @default(uuid())
   userId              String          @map("user_id")
+  pointOfSaleId       String?         @map("point_of_sale_id")
   categoryId          String          @map("category_id")
   documentSequence    Int             @map("document_sequence")
   documentNumber      String          @unique @map("document_number")
@@ -208,11 +289,12 @@ model Expense {
   createdAt           DateTime        @default(now()) @map("created_at")
   updatedAt           DateTime        @updatedAt @map("updated_at")
   user                User            @relation("ExpenseCreator", fields: [userId], references: [id], onDelete: Cascade)
+  pointOfSale         PointOfSale?    @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   category            ExpenseCategory @relation(fields: [categoryId], references: [id])
   voidedBy            User?           @relation("ExpenseVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([userId, documentSequence])
   @@index([userId])
+  @@index([pointOfSaleId, documentSequence])
   @@index([categoryId])
   @@index([status])
   @@index([expenseDate])
@@ -238,6 +320,7 @@ model Product {
 model Order {
   id               String              @id @default(uuid())
   userId           String              @map("user_id")
+  pointOfSaleId    String?             @map("point_of_sale_id")
   clientId         String              @map("client_id")
   documentSequence Int                 @map("document_sequence")
   documentNumber   String              @unique @map("document_number")
@@ -252,11 +335,12 @@ model Order {
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
   user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pointOfSale      PointOfSale?        @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   client           Client              @relation(fields: [clientId], references: [id])
   items            OrderItem[]
 
-  @@unique([userId, documentSequence])
   @@index([userId])
+  @@index([pointOfSaleId, documentSequence])
   @@index([clientId])
   @@index([createdAt])
   @@map("orders")

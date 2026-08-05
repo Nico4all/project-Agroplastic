@@ -4,6 +4,7 @@ import { decimalToNumber } from '../../common/helpers/money';
 import { buildOrderTicketPdf, formatDate } from '../../common/helpers/reports';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole } from '../../common/helpers/roles';
 import { UsersService } from '../users/users.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
@@ -40,6 +41,7 @@ export class OrdersService {
 
   async create(userId: string, dto: CreateOrderDto) {
     const actor = await this.users.getActiveUser(userId);
+    if (!actor.pointOfSaleId) throw new BadRequestException('Debes tener un punto de venta asignado para registrar pedidos');
     const client = await this.clients.findAccessible(actor, dto.clientId);
     if (!client.isActive) throw new BadRequestException('El cliente esta inactivo');
 
@@ -70,19 +72,21 @@ export class OrdersService {
     const totalAmount = items.reduce((total, item) => total.add(item.lineTotal), new Prisma.Decimal(0));
 
     const order = await this.prisma.$transaction(async (transaction) => {
-      const numberedUser = await transaction.user.update({
-        where: { id: actor.id },
+      const numberedPointOfSale = await transaction.pointOfSale.update({
+        where: { id: actor.pointOfSaleId! },
         data: { nextOrderNumber: { increment: 1 } },
-        select: { documentSuffix: true, nextOrderNumber: true },
+        select: { documentPrefix: true, nextOrderNumber: true, isActive: true },
       });
-      const documentSequence = numberedUser.nextOrderNumber - 1;
+      if (!numberedPointOfSale.isActive) throw new BadRequestException('El punto de venta asignado esta inactivo');
+      const documentSequence = numberedPointOfSale.nextOrderNumber - 1;
 
       return transaction.order.create({
         data: {
           userId: actor.id,
+          pointOfSaleId: actor.pointOfSaleId,
           clientId: client.id,
           documentSequence,
-          documentNumber: `${numberedUser.documentSuffix}-${documentSequence}`,
+          documentNumber: `${numberedPointOfSale.documentPrefix}-${documentSequence}`,
           clientName: client.fullName,
           clientDocument: client.identityDocument,
           deliveryAddress: dto.deliveryAddress.trim(),
@@ -145,7 +149,7 @@ export class OrdersService {
 
   private async findAccessible(actor: User, id: string) {
     const order = await this.prisma.order.findFirst({
-      where: { id, ...(actor.role === UserRole.ADMIN ? {} : { userId: actor.id }) },
+      where: { id, ...(isAdminRole(actor.role) ? {} : { pointOfSaleId: actor.pointOfSaleId! }) },
       include: this.includeRelations(),
     });
     if (!order) throw new NotFoundException('Pedido no encontrado');
@@ -154,7 +158,7 @@ export class OrdersService {
 
   private buildWhere(actor: User, query: QueryOrdersDto): Prisma.OrderWhereInput {
     const and: Prisma.OrderWhereInput[] = [];
-    if (actor.role !== UserRole.ADMIN) and.push({ userId: actor.id });
+    if (!isAdminRole(actor.role)) and.push({ pointOfSaleId: actor.pointOfSaleId! });
     if (query.search) {
       and.push({
         OR: [
@@ -174,14 +178,15 @@ export class OrdersService {
 
     return {
       ...(and.length ? { AND: and } : {}),
-      ...(actor.role === UserRole.ADMIN && query.userId ? { userId: query.userId } : {}),
+      ...(isAdminRole(actor.role) && query.userId ? { userId: query.userId } : {}),
       ...(Object.keys(createdAt).length ? { createdAt } : {}),
     };
   }
 
   private includeRelations() {
     return {
-      user: { select: { id: true, name: true, username: true, documentSuffix: true, role: true } },
+      user: { select: { id: true, name: true, username: true, role: true } },
+      pointOfSale: { select: { id: true, name: true, code: true, documentPrefix: true } },
       client: { select: { id: true, fullName: true, identityDocument: true } },
       items: { orderBy: { productDescription: 'asc' as const } },
     };

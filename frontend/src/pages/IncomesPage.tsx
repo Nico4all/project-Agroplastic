@@ -7,6 +7,7 @@ import { CashIncome, IncomeType, PaymentMethod, RecordStatus } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 import { downloadBlob, openBlob } from '../utils/download';
+import { isAdminRole } from '../utils/roles';
 
 const incomeTypeLabels: Record<IncomeType, string> = {
   ADVANCE: 'Anticipo',
@@ -51,7 +52,7 @@ export function IncomesPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', type: '', paymentMethod: '', status: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
@@ -286,7 +287,7 @@ export function IncomesPage() {
                         <Button variant="ghost" className="px-2" title="Ver PDF" onClick={() => openReceipt(item.id)}>
                           <FileText className="h-4 w-4" />
                         </Button>
-                        {item.status === 'ACTIVE' && (
+                        {item.status === 'ACTIVE' && (isAdmin || item.userId === user?.id) && (
                           <Button variant="ghost" className="px-2 text-expense" title="Anular" onClick={() => setVoiding(item)}>
                             <Ban className="h-4 w-4" />
                           </Button>
