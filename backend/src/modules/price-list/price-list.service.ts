@@ -135,24 +135,65 @@ export class PriceListService {
     await this.users.ensureSuperAdmin(userId);
     const current = await this.prisma.priceListProduct.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Producto de lista no encontrado');
+    const hasPriceChanges = dto.primaryPrice !== undefined
+      || dto.secondaryPrice !== undefined
+      || dto.primaryPriceNote !== undefined
+      || dto.secondaryPriceNote !== undefined;
+    if (hasPriceChanges && !dto.pointOfSaleId) {
+      throw new BadRequestException('Selecciona el punto de venta cuyo precio deseas editar');
+    }
     if (dto.categoryId && !await this.prisma.priceListCategory.findUnique({ where: { id: dto.categoryId } })) {
       throw new NotFoundException('Categoría no encontrada');
     }
     if (dto.supplierId && !await this.prisma.supplier.findUnique({ where: { id: dto.supplierId } })) {
       throw new NotFoundException('Proveedor no encontrado');
     }
-    return this.prisma.priceListProduct.update({
-      where: { id },
-      data: {
-        ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId } : {}),
-        ...(dto.supplierId !== undefined ? { supplierId: dto.supplierId } : {}),
-        ...(dto.reference !== undefined ? { reference: cleanDisplayText(dto.reference) } : {}),
-        ...(dto.measure !== undefined ? { measure: cleanDisplayText(dto.measure) || null } : {}),
-        ...(dto.presentation !== undefined ? { presentation: cleanDisplayText(dto.presentation) || null } : {}),
-        ...(dto.primaryPriceLabel !== undefined ? { primaryPriceLabel: cleanDisplayText(dto.primaryPriceLabel) } : {}),
-        ...(dto.secondaryPriceLabel !== undefined ? { secondaryPriceLabel: cleanDisplayText(dto.secondaryPriceLabel) } : {}),
-        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
-      },
+    if (dto.pointOfSaleId && !await this.prisma.pointOfSale.findUnique({ where: { id: dto.pointOfSaleId } })) {
+      throw new NotFoundException('Punto de venta no encontrado');
+    }
+
+    const primaryPriceNote = dto.primaryPriceNote === undefined
+      ? undefined
+      : cleanDisplayText(dto.primaryPriceNote || '') || null;
+    const secondaryPriceNote = dto.secondaryPriceNote === undefined
+      ? undefined
+      : cleanDisplayText(dto.secondaryPriceNote || '') || null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.priceListProduct.update({
+        where: { id },
+        data: {
+          ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId } : {}),
+          ...(dto.supplierId !== undefined ? { supplierId: dto.supplierId } : {}),
+          ...(dto.reference !== undefined ? { reference: cleanDisplayText(dto.reference) } : {}),
+          ...(dto.measure !== undefined ? { measure: cleanDisplayText(dto.measure) || null } : {}),
+          ...(dto.presentation !== undefined ? { presentation: cleanDisplayText(dto.presentation) || null } : {}),
+          ...(dto.primaryPriceLabel !== undefined ? { primaryPriceLabel: cleanDisplayText(dto.primaryPriceLabel) } : {}),
+          ...(dto.secondaryPriceLabel !== undefined ? { secondaryPriceLabel: cleanDisplayText(dto.secondaryPriceLabel) } : {}),
+          ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        },
+      });
+
+      if (hasPriceChanges && dto.pointOfSaleId) {
+        await tx.pointOfSalePrice.upsert({
+          where: { pointOfSaleId_productId: { pointOfSaleId: dto.pointOfSaleId, productId: id } },
+          create: {
+            pointOfSaleId: dto.pointOfSaleId,
+            productId: id,
+            primaryPrice: dto.primaryPrice === undefined ? current.defaultPrimaryPrice : dto.primaryPrice,
+            secondaryPrice: dto.secondaryPrice === undefined ? current.defaultSecondaryPrice : dto.secondaryPrice,
+            primaryPriceNote: primaryPriceNote === undefined ? current.defaultPrimaryNote : primaryPriceNote,
+            secondaryPriceNote: secondaryPriceNote === undefined ? current.defaultSecondaryNote : secondaryPriceNote,
+          },
+          update: {
+            ...(dto.primaryPrice !== undefined ? { primaryPrice: dto.primaryPrice } : {}),
+            ...(dto.secondaryPrice !== undefined ? { secondaryPrice: dto.secondaryPrice } : {}),
+            ...(primaryPriceNote !== undefined ? { primaryPriceNote } : {}),
+            ...(secondaryPriceNote !== undefined ? { secondaryPriceNote } : {}),
+          },
+        });
+      }
+      return product;
     });
   }
 }

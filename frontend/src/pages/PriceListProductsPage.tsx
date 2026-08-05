@@ -99,7 +99,11 @@ export function PriceListProductsPage() {
     setForm({
       categoryId: product.categoryId, supplierId: product.supplierId, reference: product.reference,
       measure: product.measure || '', presentation: product.presentation || '', primaryPriceLabel: product.primaryPriceLabel,
-      secondaryPriceLabel: product.secondaryPriceLabel, primaryPrice: '', secondaryPrice: '', primaryPriceNote: '', secondaryPriceNote: '',
+      secondaryPriceLabel: product.secondaryPriceLabel,
+      primaryPrice: product.primaryPrice == null ? '' : String(product.primaryPrice),
+      secondaryPrice: product.secondaryPrice == null ? '' : String(product.secondaryPrice),
+      primaryPriceNote: product.primaryPriceNote || '',
+      secondaryPriceNote: product.secondaryPriceNote || '',
     });
     setError('');
     setModalOpen(true);
@@ -112,6 +116,11 @@ export function PriceListProductsPage() {
         categoryId: form.categoryId, supplierId: form.supplierId, reference: form.reference,
         measure: form.measure, presentation: form.presentation, primaryPriceLabel: form.primaryPriceLabel,
         secondaryPriceLabel: form.secondaryPriceLabel,
+        pointOfSaleId,
+        primaryPrice: form.primaryPrice === '' ? null : Number(form.primaryPrice),
+        secondaryPrice: form.secondaryPrice === '' ? null : Number(form.secondaryPrice),
+        primaryPriceNote: form.primaryPriceNote,
+        secondaryPriceNote: form.secondaryPriceNote,
       } });
     } else {
       await create.mutateAsync({
@@ -142,12 +151,13 @@ export function PriceListProductsPage() {
           <td className="break-words px-3 py-3 font-semibold text-brand">{product.category.name}</td><td className="break-words px-3 py-3">{product.supplier.name}</td><td className="break-words px-3 py-3 font-semibold">{product.reference}</td><td className="break-words px-3 py-3">{product.measure || '—'}</td><td className="break-words px-3 py-3">{product.presentation || '—'}</td>
           <td className="break-words px-3 py-3"><p className="mb-1 text-[9px] uppercase text-mute">{product.primaryPriceLabel}</p><PriceCell value={product.primaryPrice} note={product.primaryPriceNote} /></td>
           <td className="break-words px-3 py-3"><p className="mb-1 text-[9px] uppercase text-mute">{product.secondaryPriceLabel}</p><PriceCell value={product.secondaryPrice} note={product.secondaryPriceNote} /></td>
-          {canEdit && <td className="px-3 py-3"><div className="flex items-center justify-end gap-1"><Toggle checked={product.isActive} onChange={(isActive) => update.mutate({ id: product.id, payload: { isActive } })} label="Cambiar estado" /><Button variant="ghost" className="px-2" onClick={() => openEdit(product)}><Pencil className="h-4 w-4" /></Button></div></td>}
+          {canEdit && <td className="px-3 py-3"><div className="flex items-center justify-end gap-1"><Toggle checked={product.isActive} onChange={(isActive) => update.mutate({ id: product.id, payload: { isActive } })} label="Cambiar estado" /><Button variant="ghost" className="px-2" aria-label={`Editar ${product.reference}`} disabled={!pointOfSaleId} title={pointOfSaleId ? 'Editar producto y precio' : 'Selecciona un punto de venta'} onClick={() => openEdit(product)}><Pencil className="h-4 w-4" /></Button></div></td>}
         </tr>)}</tbody>
       </table></div></Card> : <EmptyState title="No hay productos para estos filtros" />}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar producto de lista' : 'Nuevo producto de lista'} size="large">
         <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+          {editing && <div className="md:col-span-2 rounded-lg bg-brand-soft px-3 py-2 text-sm text-brand-dark">Editando precios y anotaciones para <strong>{points.find((point) => point.id === pointOfSaleId)?.name || 'el punto de venta seleccionado'}</strong>.</div>}
           <Field label="Categoría"><Select required value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">Selecciona</option>{categories.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
           <Field label="Proveedor"><Select required value={form.supplierId} onChange={(event) => setForm({ ...form, supplierId: event.target.value })}><option value="">Selecciona</option>{suppliers.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
           <div className="md:col-span-2"><Field label="Referencia"><Input required maxLength={500} value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></Field></div>
@@ -155,7 +165,7 @@ export function PriceListProductsPage() {
           <Field label="Presentación (opcional)"><Input maxLength={300} value={form.presentation} onChange={(event) => setForm({ ...form, presentation: event.target.value })} /></Field>
           <Field label="Nombre precio principal"><Input required value={form.primaryPriceLabel} onChange={(event) => setForm({ ...form, primaryPriceLabel: event.target.value })} /></Field>
           <Field label="Nombre precio secundario"><Input required value={form.secondaryPriceLabel} onChange={(event) => setForm({ ...form, secondaryPriceLabel: event.target.value })} /></Field>
-          {!editing && <><Field label="Precio principal"><Input type="number" min="0" step="0.01" value={form.primaryPrice} onChange={(event) => setForm({ ...form, primaryPrice: event.target.value })} /></Field><Field label="Precio secundario"><Input type="number" min="0" step="0.01" value={form.secondaryPrice} onChange={(event) => setForm({ ...form, secondaryPrice: event.target.value })} /></Field><Field label="Nota precio principal"><Input maxLength={300} value={form.primaryPriceNote} onChange={(event) => setForm({ ...form, primaryPriceNote: event.target.value })} /></Field><Field label="Nota precio secundario"><Input maxLength={300} value={form.secondaryPriceNote} onChange={(event) => setForm({ ...form, secondaryPriceNote: event.target.value })} /></Field></>}
+          <Field label="Precio principal"><Input type="number" min="0" step="0.01" value={form.primaryPrice} onChange={(event) => setForm({ ...form, primaryPrice: event.target.value })} /></Field><Field label="Precio secundario"><Input type="number" min="0" step="0.01" value={form.secondaryPrice} onChange={(event) => setForm({ ...form, secondaryPrice: event.target.value })} /></Field><Field label="Anotación precio principal"><Input maxLength={300} placeholder="Ej. PRECIO POR KILO" value={form.primaryPriceNote} onChange={(event) => setForm({ ...form, primaryPriceNote: event.target.value })} /></Field><Field label="Anotación precio secundario"><Input maxLength={300} placeholder="Ej. SOLO ROLLO" value={form.secondaryPriceNote} onChange={(event) => setForm({ ...form, secondaryPriceNote: event.target.value })} /></Field>
           {error && <p className="md:col-span-2 rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
           <div className="flex justify-end gap-2 md:col-span-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={create.isPending || update.isPending}>Guardar</Button></div>
         </form>

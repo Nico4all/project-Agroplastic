@@ -1,6 +1,10 @@
-import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 
 export class UpdatePriceListProductDto {
+  @IsOptional()
+  @IsUUID()
+  pointOfSaleId?: string;
+
   @IsOptional()
   @IsUUID()
   categoryId?: string;
@@ -40,4 +44,24 @@ export class UpdatePriceListProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  primaryPrice?: number | null;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  secondaryPrice?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  primaryPriceNote?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  secondaryPriceNote?: string | null;
 }

@@ -126,7 +126,8 @@ export const priceListApi = {
     secondaryPriceNote?: string;
   }) => (await api.post<PriceListProduct>('/price-list/products', payload)).data,
   updateProduct: async (id: string, payload: Partial<Pick<PriceListProduct,
-    'categoryId' | 'supplierId' | 'reference' | 'measure' | 'presentation' | 'primaryPriceLabel' | 'secondaryPriceLabel' | 'isActive'>>
+    'categoryId' | 'supplierId' | 'reference' | 'measure' | 'presentation' | 'primaryPriceLabel' | 'secondaryPriceLabel' |
+    'isActive' | 'pointOfSaleId' | 'primaryPrice' | 'secondaryPrice' | 'primaryPriceNote' | 'secondaryPriceNote'>>
   ) => (await api.patch<PriceListProduct>(`/price-list/products/${id}`, payload)).data,
 };
 
