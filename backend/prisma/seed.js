@@ -100,6 +100,43 @@ async function seedBootstrapUsers() {
   );
 }
 
+async function seedPointsOfSale() {
+  const points = [
+    { name: 'Cali', code: 'Cl', documentPrefix: 'Cl', city: 'Cali' },
+    { name: 'Ipiales', code: 'Ip', documentPrefix: 'Ip', city: 'Ipiales' },
+    { name: 'Pasto', code: 'Ps', documentPrefix: 'Ps', city: 'Pasto' },
+    { name: 'Popayan', code: 'Py', documentPrefix: 'Py', city: 'Popayan' },
+  ];
+
+  for (const point of points) {
+    const existing = await prisma.pointOfSale.findFirst({
+      where: {
+        OR: [
+          { code: point.code },
+          { name: point.name },
+        ],
+      },
+    });
+    if (existing) {
+      await prisma.pointOfSale.update({
+        where: { id: existing.id },
+        data: {
+          ...point,
+          address: null,
+          isActive: true,
+        },
+      });
+      continue;
+    }
+    await prisma.pointOfSale.create({
+      data: {
+        ...point,
+        address: null,
+      },
+    });
+  }
+}
+
 async function seedPriceList() {
   const data = JSON.parse(await readFile(join(dataDirectory, 'price-list-products.json'), 'utf8'));
   await prisma.priceListCategory.createMany({
@@ -171,16 +208,18 @@ async function seedPriceList() {
 
 async function main() {
   await seedBootstrapUsers();
+  await seedPointsOfSale();
   await seedClients();
   await seedProducts();
   await seedPriceList();
-  const [clients, products, priceListProducts, suppliers] = await Promise.all([
+  const [clients, products, priceListProducts, suppliers, pointsOfSale] = await Promise.all([
     prisma.client.count(),
     prisma.product.count(),
     prisma.priceListProduct.count(),
     prisma.supplier.count(),
+    prisma.pointOfSale.count(),
   ]);
-  console.log(`Seed completado: ${clients} clientes, ${products} productos de pedidos, ${priceListProducts} productos de lista y ${suppliers} proveedores.`);
+  console.log(`Seed completado: ${clients} clientes, ${products} productos de pedidos, ${priceListProducts} productos de lista, ${suppliers} proveedores y ${pointsOfSale} puntos de venta.`);
 }
 
 main()

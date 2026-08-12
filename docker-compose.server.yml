@@ -1,0 +1,57 @@
+name: agroplastic-caja-bodega-server
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/caja-bodega/}
+        VITE_API_URL: ${VITE_API_URL:-/caja-bodega/api}
+    image: caja-bodega-app1:prod
+    container_name: caja-bodega-app1
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${APP_PORT:-3002}
+      APP_BASE_PATH: ${APP_BASE_PATH:-/caja-bodega}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL no esta definido}
+      DATABASE_URL: mysql://${MARIADB_USER:?MARIADB_USER no esta definido}:${MARIADB_PASSWORD:?MARIADB_PASSWORD no esta definido}@${MARIADB_HOST:-database}:${MARIADB_PORT:-3306}/${MARIADB_DATABASE:?MARIADB_DATABASE no esta definido}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET no esta definido}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET no esta definido}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-10}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME no esta definido}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD no esta definido}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      SUPERADMIN_USERNAME: ${SUPERADMIN_USERNAME:-superadmin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?SUPERADMIN_PASSWORD no esta definido}
+      SUPERADMIN_NAME: ${SUPERADMIN_NAME:-Superadministrador}
+      MAX_WAREHOUSE_USERS: ${MAX_WAREHOUSE_USERS:-4}
+      RUN_DATABASE_SEED: ${RUN_DATABASE_SEED:-true}
+    ports:
+      - "127.0.0.1:${HOST_APP_PORT:-3003}:${APP_PORT:-3002}"
+    networks:
+      apps_mind_net:
+        aliases:
+          - caja-bodega-app1
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const p=process.env.PORT||3002; const b=process.env.APP_BASE_PATH||'/caja-bodega'; fetch('http://127.0.0.1:'+p+b+'/api/auth/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+networks:
+  apps_mind_net:
+    external: true
+    name: apps_mind_net
