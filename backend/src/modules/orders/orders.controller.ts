@@ -6,6 +6,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateInvoicedStatusDto } from './dto/update-invoiced-status.dto';
 import { OrdersService } from './orders.service';
+import { VoidOrderDto } from './dto/void-order.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('orders')
@@ -38,5 +39,11 @@ export class OrdersController {
     @Body() dto: UpdateInvoicedStatusDto,
   ) {
     return this.orders.updateInvoicedStatus(user.userId, id, dto.isInvoiced);
+  }
+
+  @Patch(':id/void')
+  @HttpCode(200)
+  void(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Body() dto: VoidOrderDto) {
+    return this.orders.void(user.userId, id, dto);
   }
 }

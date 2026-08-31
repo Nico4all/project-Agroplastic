@@ -5,4 +5,7 @@ export class CreateProductDto {
   @MinLength(2)
   @MaxLength(191)
   description: string;
+
+  @IsString()
+  pointOfSaleId: string;
 }

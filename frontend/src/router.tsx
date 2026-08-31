@@ -13,6 +13,7 @@ import { PointsOfSalePage } from './pages/PointsOfSalePage';
 import { UsersPage } from './pages/UsersPage';
 import { PriceListProductsPage } from './pages/PriceListProductsPage';
 import { SuppliersPage } from './pages/SuppliersPage';
+import { InventoryPage } from './pages/InventoryPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <AuthPage /> },
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: 'incomes', element: <IncomesPage /> },
       { path: 'expenses', element: <ExpensesPage /> },
       { path: 'orders', element: <OrdersPage /> },
+      { path: 'inventory', element: <InventoryPage /> },
       { path: 'products', element: <ProductsPage /> },
       { path: 'price-list', element: <PriceListProductsPage /> },
       { path: 'suppliers', element: <SuppliersPage /> },

@@ -37,6 +37,8 @@ export type OrderTicketData = {
   observations: string;
   userName: string;
   invoiced: boolean;
+  voided: boolean;
+  voidReason?: string;
   items: Array<{
     description: string;
     quantity: number;
@@ -448,8 +450,12 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   });
   y += layout.observationsHeight + 22;
 
-  ticketPair(doc, 'Estado', data.invoiced ? 'Facturado' : 'Pendiente', y, contentWidth);
+  ticketPair(doc, 'Estado', data.voided ? 'Anulado' : data.invoiced ? 'Facturado' : 'Pendiente', y, contentWidth);
   y += 16;
+  if (data.voided) {
+    ticketPair(doc, 'Motivo', data.voidReason || 'Sin motivo', y, contentWidth);
+    y += layout.voidReasonHeight;
+  }
   ticketPair(doc, 'Atendido por', data.userName, y, contentWidth);
   y += Math.max(20, doc.heightOfString(data.userName, { width: 124 }));
   doc.font('Helvetica-Bold').fontSize(9).fillColor(BRAND_DARK).text('Gracias por su pedido', 16, y + 10, { width: contentWidth, align: 'center' });
@@ -476,6 +482,9 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
     measureDoc.heightOfString(data.observations || 'Sin observaciones', { width: contentWidth - 10 }),
   );
   const userHeight = Math.max(20, measureDoc.heightOfString(data.userName, { width: 124 }));
+  const voidReasonHeight = data.voided
+    ? Math.max(16, measureDoc.heightOfString(data.voidReason || 'Sin motivo', { width: 124 }))
+    : 0;
   const descriptionHeights = data.items.map((item) => {
     measureDoc.font('Helvetica-Bold').fontSize(8);
     return Math.max(24, measureDoc.heightOfString(item.description, { width: contentWidth - 12 }) + 10);
@@ -499,6 +508,7 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
   y += 12;
   y += observationsHeight + 22;
   y += 16;
+  y += voidReasonHeight;
   y += userHeight;
 
   measureDoc.end();
@@ -506,6 +516,7 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
     pageHeight: Math.max(600, Math.ceil(y + 54)),
     descriptionHeights,
     observationsHeight,
+    voidReasonHeight,
   };
 }
 

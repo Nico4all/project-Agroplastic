@@ -16,6 +16,7 @@ import { UsersModule } from './modules/users/users.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
 import { PriceListModule } from './modules/price-list/price-list.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 
 const appBasePath = process.env.APP_BASE_PATH || '/caja-bodega';
 const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
@@ -38,6 +39,7 @@ const normalizedBasePath = `/${appBasePath.replace(/^\/+|\/+$/g, '')}`;
     IncomesModule,
     ExpensesModule,
     ProductsModule,
+    InventoryModule,
     SuppliersModule,
     PriceListModule,
     OrdersModule,

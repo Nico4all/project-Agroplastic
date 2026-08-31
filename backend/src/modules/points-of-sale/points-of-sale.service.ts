@@ -14,6 +14,7 @@ const pointOfSaleSelect = {
   nextIncomeNumber: true,
   nextExpenseNumber: true,
   nextOrderNumber: true,
+  nextInventoryEntryNumber: true,
   city: true,
   address: true,
   isActive: true,
@@ -72,6 +73,16 @@ export class PointsOfSaleService {
             })),
           });
         }
+        const orderProducts = await tx.product.findMany({ select: { id: true, isActive: true } });
+        if (orderProducts.length) {
+          await tx.inventoryStock.createMany({
+            data: orderProducts.map((product) => ({
+              pointOfSaleId: pointOfSale.id,
+              productId: product.id,
+              isActive: product.isActive,
+            })),
+          });
+        }
         return pointOfSale;
       });
     } catch (error) {
@@ -106,6 +117,10 @@ export class PointsOfSaleService {
             nextIncomeNumber: Math.max(current.nextIncomeNumber, historicalCounters.nextIncomeNumber),
             nextExpenseNumber: Math.max(current.nextExpenseNumber, historicalCounters.nextExpenseNumber),
             nextOrderNumber: Math.max(current.nextOrderNumber, historicalCounters.nextOrderNumber),
+            nextInventoryEntryNumber: Math.max(
+              current.nextInventoryEntryNumber,
+              historicalCounters.nextInventoryEntryNumber,
+            ),
           } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         },
@@ -145,15 +160,20 @@ export class PointsOfSaleService {
 
   private async nextCountersForPrefix(documentPrefix: string) {
     const documentNumber = { startsWith: `${documentPrefix}-` };
-    const [income, expense, order] = await Promise.all([
+    const [income, expense, order, inventoryEntry] = await Promise.all([
       this.prisma.income.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.expense.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.order.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
+      this.prisma.inventoryEntry.aggregate({
+        where: { documentNumber: { startsWith: `${documentPrefix}-EM-` } },
+        _max: { documentSequence: true },
+      }),
     ]);
     return {
       nextIncomeNumber: (income._max.documentSequence ?? 0) + 1,
       nextExpenseNumber: (expense._max.documentSequence ?? 0) + 1,
       nextOrderNumber: (order._max.documentSequence ?? 0) + 1,
+      nextInventoryEntryNumber: (inventoryEntry._max.documentSequence ?? 0) + 1,
     };
   }
 }

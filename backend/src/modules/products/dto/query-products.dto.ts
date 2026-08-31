@@ -4,6 +4,10 @@ import { IsBoolean, IsOptional, IsString } from 'class-validator';
 export class QueryProductsDto {
   @IsOptional()
   @IsString()
+  pointOfSaleId?: string;
+
+  @IsOptional()
+  @IsString()
   search?: string;
 
   @IsOptional()

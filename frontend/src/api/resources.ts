@@ -18,6 +18,8 @@ import {
   Supplier,
   PriceListCategory,
   PriceListProduct,
+  InventoryEntry,
+  InventoryStock,
 } from '../types';
 import { api } from './client';
 
@@ -95,8 +97,24 @@ export const pointsOfSaleApi = {
 
 export const productsApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<Product[]>('/products', { params })).data,
-  create: async (payload: { description: string }) => (await api.post<Product>('/products', payload)).data,
-  update: async (id: string, payload: { description?: string; isActive?: boolean }) => (await api.patch<Product>(`/products/${id}`, payload)).data,
+  create: async (payload: { description: string; pointOfSaleId: string }) => (await api.post<Product>('/products', payload)).data,
+  update: async (id: string, payload: { pointOfSaleId: string; description?: string; isActive?: boolean }) =>
+    (await api.patch<Product>(`/products/${id}`, payload)).data,
+};
+
+export const inventoryApi = {
+  stocks: async (params?: Record<string, unknown>) =>
+    (await api.get<InventoryStock[]>('/inventory/stocks', { params })).data,
+  entries: async (params?: Record<string, unknown>) =>
+    (await api.get<PaginatedResult<InventoryEntry>>('/inventory/entries', { params })).data,
+  createEntry: async (payload: {
+    pointOfSaleId?: string;
+    supplierName: string;
+    remittanceNumber?: string;
+    observations?: string;
+    entryDate: string;
+    items: Array<{ productId: string; quantity: number }>;
+  }) => (await api.post<InventoryEntry>('/inventory/entries', payload)).data,
 };
 
 export const suppliersApi = {
@@ -152,6 +170,7 @@ export const ordersApi = {
   }) =>
     (await api.post<Order>('/orders', payload)).data,
   setInvoiced: async (id: string, isInvoiced: boolean) => (await api.patch<Order>(`/orders/${id}/invoiced`, { isInvoiced })).data,
+  void: async (id: string, reason?: string) => (await api.patch<Order>(`/orders/${id}/void`, { reason })).data,
   ticketPdf: async (id: string) => (await api.get(`/orders/${id}/pdf`, { responseType: 'blob' })).data as Blob,
 };
 

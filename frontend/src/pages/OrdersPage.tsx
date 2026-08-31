@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
+import { Ban, Eye, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, ordersApi, productsApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
@@ -24,7 +24,7 @@ export function OrdersPage() {
   const toast = useToast();
   const isAdmin = isAdminRole(user?.role);
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', search: '' });
+  const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', status: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
   const [clientId, setClientId] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -34,6 +34,8 @@ export function OrdersPage() {
   const [lines, setLines] = useState<OrderLineForm[]>([emptyLine()]);
   const [error, setError] = useState('');
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
+  const [voiding, setVoiding] = useState<Order | null>(null);
+  const [voidReason, setVoidReason] = useState('');
 
   const params = useMemo(
     () => Object.fromEntries(Object.entries({ page, pageSize: 15, ...filters }).filter(([, value]) => value !== '')),
@@ -41,20 +43,29 @@ export function OrdersPage() {
   );
   const { data, isLoading } = useQuery({ queryKey: ['orders', params], queryFn: () => ordersApi.list(params) });
   const { data: clientsData } = useQuery({ queryKey: ['clients', 'order-form'], queryFn: () => clientsApi.list({ pageSize: 2000, isActive: true }) });
-  const { data: products = [] } = useQuery({ queryKey: ['products', 'order-form'], queryFn: () => productsApi.list({ isActive: true }) });
+  const { data: products = [] } = useQuery({
+    queryKey: ['products', 'order-form', user?.pointOfSaleId],
+    queryFn: () => productsApi.list({ isActive: true, pointOfSaleId: user?.pointOfSaleId }),
+    enabled: Boolean(user?.pointOfSaleId),
+  });
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
   const clients = clientsData?.data || [];
   const clientOptions = clients.map((client) => ({
     value: client.id,
     label: `${client.fullName} - ${client.identityDocument}`,
   }));
-  const productOptions = products.map((product) => ({ value: product.id, label: product.description }));
+  const productOptions = products.map((product) => ({
+    value: product.id,
+    label: `${product.description} - disponible ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
+  }));
   const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
 
   const create = useMutation({
     mutationFn: ordersApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
       toast('Pedido registrado');
       setModalOpen(false);
     },
@@ -68,6 +79,19 @@ export function OrdersPage() {
       toast(variables.isInvoiced ? 'Pedido marcado como facturado' : 'Facturacion retirada');
     },
     onError: (err) => toast(getApiError(err, 'No se pudo cambiar la facturacion'), 'error'),
+  });
+
+  const voidMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => ordersApi.void(id, reason),
+    onSuccess: (order) => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      toast(order.inventoryAppliedAt ? 'Pedido anulado e inventario devuelto' : 'Pedido histórico anulado sin movimiento de inventario');
+      setVoiding(null);
+      setVoidReason('');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo anular el pedido'), 'error'),
   });
 
   const setFilter = (key: keyof typeof filters, value: string) => {
@@ -109,6 +133,15 @@ export function OrdersPage() {
       setError('Selecciona un producto en cada linea');
       return;
     }
+    const insufficient = lines.find((line) => {
+      const product = products.find((item) => item.id === line.productId);
+      return !product || Number(line.quantity) > product.quantity;
+    });
+    if (insufficient) {
+      const product = products.find((item) => item.id === insufficient.productId);
+      setError(`Inventario insuficiente para ${product?.description || 'el producto seleccionado'}`);
+      return;
+    }
     await create.mutateAsync({
       clientId,
       deliveryAddress,
@@ -128,13 +161,13 @@ export function OrdersPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Pedidos</h1>
-          <p className="text-sm text-mute">Pedidos informativos sin movimientos de inventario.</p>
+          <p className="text-sm text-mute">Cada pedido descuenta inmediatamente las existencias del punto de venta.</p>
         </div>
         <Button onClick={openCreate}><Plus className="h-4 w-4" /> Nuevo</Button>
       </div>
 
       <Card className="p-4">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Field label="Desde"><Input type="date" value={filters.fromDate} onChange={(event) => setFilter('fromDate', event.target.value)} /></Field>
           <Field label="Hasta"><Input type="date" value={filters.toDate} onChange={(event) => setFilter('toDate', event.target.value)} /></Field>
           {isAdmin && (
@@ -145,6 +178,7 @@ export function OrdersPage() {
               </Select>
             </Field>
           )}
+          <Field label="Estado"><Select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="">Todos</option><option value="ACTIVE">Activo</option><option value="VOID">Anulado</option></Select></Field>
           <Field label="Buscar">
             <div className="relative">
               <Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Id, cliente o producto" className="pl-9" />
@@ -167,14 +201,14 @@ export function OrdersPage() {
                   <th className="px-4 py-3">Cliente</th>
                   <th className="px-4 py-3">Productos</th>
                   <th className="px-4 py-3">Total</th>
-                  <th className="px-4 py-3">Facturacion</th>
+                  <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3">Usuario</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {data.data.map((order) => (
-                  <tr key={order.id}>
+                  <tr key={order.id} className={order.status === 'VOID' ? 'bg-expense-soft/25' : ''}>
                     <td className="px-4 py-3 font-mono font-semibold">{order.documentNumber}</td>
                     <td className="px-4 py-3">{dateInput(order.createdAt)}</td>
                     <td className="px-4 py-3"><p className="font-semibold">{order.clientName}</p><p className="text-xs text-mute">{order.clientDocument}</p></td>
@@ -188,7 +222,7 @@ export function OrdersPage() {
                     </td>
                     <td className="money px-4 py-3 font-bold text-brand-dark">{money(order.totalAmount)}</td>
                     <td className="px-4 py-3">
-                      <Badge tone={order.invoicedAt ? 'income' : 'neutral'}>{order.invoicedAt ? 'Facturado' : 'Pendiente'}</Badge>
+                      <div className="flex flex-col items-start gap-1"><Badge tone={order.status === 'VOID' ? 'expense' : 'income'}>{order.status === 'VOID' ? 'Anulado' : 'Activo'}</Badge>{order.status === 'ACTIVE' && <span className="text-xs text-mute">{order.invoicedAt ? 'Facturado' : 'Pendiente de facturar'}</span>}</div>
                     </td>
                     <td className="px-4 py-3">{order.user?.name || '-'}</td>
                     <td className="px-4 py-3">
@@ -199,7 +233,7 @@ export function OrdersPage() {
                         <Button variant="secondary" className="px-2 py-1.5" onClick={() => openTicket(order)} title="Ver tirilla PDF">
                           <FileText className="h-4 w-4" /> Ver tirilla
                         </Button>
-                        {isAdmin && (
+                        {isAdmin && order.status === 'ACTIVE' && (
                           <Button
                             variant={order.invoicedAt ? 'secondary' : 'primary'}
                             className="px-2 py-1.5"
@@ -209,6 +243,7 @@ export function OrdersPage() {
                             <ReceiptText className="h-4 w-4" /> {order.invoicedAt ? 'Desmarcar' : 'Facturar'}
                           </Button>
                         )}
+                        {order.status === 'ACTIVE' && (isAdmin || order.userId === user?.id) && <Button variant="ghost" className="px-2 py-1.5 text-expense" onClick={() => { setVoiding(order); setVoidReason(''); }}><Ban className="h-4 w-4" /> Anular</Button>}
                       </div>
                     </td>
                   </tr>
@@ -394,7 +429,7 @@ export function OrdersPage() {
             </div>
 
             <div className="flex items-center justify-between gap-3">
-              <Badge tone={viewingOrder.invoicedAt ? 'income' : 'neutral'}>{viewingOrder.invoicedAt ? 'Facturado' : 'Pendiente de facturacion'}</Badge>
+              <Badge tone={viewingOrder.status === 'VOID' ? 'expense' : viewingOrder.invoicedAt ? 'income' : 'neutral'}>{viewingOrder.status === 'VOID' ? 'Anulado' : viewingOrder.invoicedAt ? 'Facturado' : 'Pendiente de facturacion'}</Badge>
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => openTicket(viewingOrder)}><FileText className="h-4 w-4" /> Ver tirilla PDF</Button>
                 <Button variant="secondary" onClick={() => setViewingOrder(null)}>Cerrar</Button>
@@ -402,6 +437,14 @@ export function OrdersPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={Boolean(voiding)} onClose={() => setVoiding(null)} title="Anular pedido">
+        <div className="space-y-4">
+          <p className="text-sm text-mute">{voiding?.inventoryAppliedAt ? <>Se devolverán automáticamente al inventario todos los productos del pedido <strong>{voiding.documentNumber}</strong>.</> : <>Este pedido es histórico y se anulará sin modificar el inventario.</>}</p>
+          <Field label="Motivo" hint="Opcional"><Input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} maxLength={191} /></Field>
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setVoiding(null)}>Cancelar</Button><Button variant="danger" disabled={!voiding || voidMutation.isPending} onClick={() => voiding && voidMutation.mutate({ id: voiding.id, reason: voidReason })}>{voidMutation.isPending ? 'Anulando...' : 'Anular y devolver inventario'}</Button></div>
+        </div>
       </Modal>
     </section>
   );

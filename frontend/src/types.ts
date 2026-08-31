@@ -17,6 +17,7 @@ export type PointOfSale = {
   nextIncomeNumber?: number;
   nextExpenseNumber?: number;
   nextOrderNumber?: number;
+  nextInventoryEntryNumber?: number;
   city?: string | null;
   address?: string | null;
   isActive: boolean;
@@ -164,8 +165,46 @@ export type CashExpense = {
 
 export type Product = {
   id: string;
+  inventoryStockId: string;
+  pointOfSaleId: string;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name'>;
   description: string;
+  quantity: number;
   isActive: boolean;
+};
+
+export type InventoryStock = {
+  id: string;
+  productId: string;
+  pointOfSaleId: string;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name'>;
+  productDescription: string;
+  quantity: number;
+  isActive: boolean;
+  updatedAt: string;
+};
+
+export type InventoryEntryItem = {
+  id: string;
+  productId: string;
+  productDescription: string;
+  quantity: number;
+};
+
+export type InventoryEntry = {
+  id: string;
+  userId: string;
+  pointOfSaleId: string;
+  documentSequence: number;
+  documentNumber: string;
+  supplierName: string;
+  remittanceNumber?: string | null;
+  observations?: string | null;
+  entryDate: string;
+  createdAt: string;
+  user?: Pick<User, 'id' | 'name' | 'username'>;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
+  items: InventoryEntryItem[];
 };
 
 export type Supplier = {
@@ -226,6 +265,10 @@ export type Order = {
   observations?: string | null;
   totalAmount: number;
   invoicedAt?: string | null;
+  status: RecordStatus;
+  inventoryAppliedAt?: string | null;
+  voidReason?: string | null;
+  voidedAt?: string | null;
   createdAt: string;
   user?: Pick<User, 'id' | 'name' | 'username' | 'role'>;
   pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code' | 'documentPrefix'> | null;

@@ -69,58 +69,71 @@ enum RecordStatus {
   VOID
 }
 
+enum InventoryMovementType {
+  ENTRY
+  ORDER
+  ORDER_VOID
+}
+
 model User {
-  id                String                  @id @default(uuid())
-  name              String
-  email             String                  @unique
-  username          String                  @unique
-  passwordHash      String                  @map("password_hash")
-  role              UserRole                @default(BODEGA)
-  pointOfSaleId     String?                 @map("point_of_sale_id")
-  isActive          Boolean                 @default(true) @map("is_active")
-  emailVerifiedAt   DateTime?               @map("email_verified_at")
-  createdAt         DateTime                @default(now()) @map("created_at")
-  updatedAt         DateTime                @updatedAt @map("updated_at")
-  accounts          Account[]
-  categories        Category[]
-  transactions      Transaction[]
-  transfers         Transfer[]
-  loans             Loan[]
-  loanPayments      LoanPayment[]
-  clients           Client[]                @relation("ClientCreator")
-  expenseCategories ExpenseCategory[]       @relation("ExpenseCategoryCreator")
-  incomes           Income[]                @relation("IncomeCreator")
-  expenses          Expense[]               @relation("ExpenseCreator")
-  products          Product[]               @relation("ProductCreator")
-  orders            Order[]
-  voidedIncomes     Income[]                @relation("IncomeVoidUser")
-  voidedExpenses    Expense[]               @relation("ExpenseVoidUser")
-  refreshTokens     RefreshToken[]
-  emailCodes        EmailVerificationCode[]
-  pointOfSale       PointOfSale?            @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  id                 String                  @id @default(uuid())
+  name               String
+  email              String                  @unique
+  username           String                  @unique
+  passwordHash       String                  @map("password_hash")
+  role               UserRole                @default(BODEGA)
+  pointOfSaleId      String?                 @map("point_of_sale_id")
+  isActive           Boolean                 @default(true) @map("is_active")
+  emailVerifiedAt    DateTime?               @map("email_verified_at")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  accounts           Account[]
+  categories         Category[]
+  transactions       Transaction[]
+  transfers          Transfer[]
+  loans              Loan[]
+  loanPayments       LoanPayment[]
+  clients            Client[]                @relation("ClientCreator")
+  expenseCategories  ExpenseCategory[]       @relation("ExpenseCategoryCreator")
+  incomes            Income[]                @relation("IncomeCreator")
+  expenses           Expense[]               @relation("ExpenseCreator")
+  products           Product[]               @relation("ProductCreator")
+  orders             Order[]                 @relation("OrderCreator")
+  voidedOrders       Order[]                 @relation("OrderVoidUser")
+  inventoryEntries   InventoryEntry[]
+  inventoryMovements InventoryMovement[]
+  voidedIncomes      Income[]                @relation("IncomeVoidUser")
+  voidedExpenses     Expense[]               @relation("ExpenseVoidUser")
+  refreshTokens      RefreshToken[]
+  emailCodes         EmailVerificationCode[]
+  pointOfSale        PointOfSale?            @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
 
   @@index([pointOfSaleId])
   @@map("users")
 }
 
 model PointOfSale {
-  id                String             @id @default(uuid())
-  name              String
-  code              String             @unique
-  documentPrefix    String             @unique @map("document_prefix")
-  nextIncomeNumber  Int                @default(1) @map("next_income_number")
-  nextExpenseNumber Int                @default(1) @map("next_expense_number")
-  nextOrderNumber   Int                @default(1) @map("next_order_number")
-  city              String?
-  address           String?            @db.VarChar(300)
-  isActive          Boolean            @default(true) @map("is_active")
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  users             User[]
-  incomes           Income[]
-  expenses          Expense[]
-  orders            Order[]
-  priceListPrices   PointOfSalePrice[]
+  id                       String              @id @default(uuid())
+  name                     String
+  code                     String              @unique
+  documentPrefix           String              @unique @map("document_prefix")
+  nextIncomeNumber         Int                 @default(1) @map("next_income_number")
+  nextExpenseNumber        Int                 @default(1) @map("next_expense_number")
+  nextOrderNumber          Int                 @default(1) @map("next_order_number")
+  nextInventoryEntryNumber Int                 @default(1) @map("next_inventory_entry_number")
+  city                     String?
+  address                  String?             @db.VarChar(300)
+  isActive                 Boolean             @default(true) @map("is_active")
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  users                    User[]
+  incomes                  Income[]
+  expenses                 Expense[]
+  orders                   Order[]
+  priceListPrices          PointOfSalePrice[]
+  inventoryStocks          InventoryStock[]
+  inventoryEntries         InventoryEntry[]
+  inventoryMovements       InventoryMovement[]
 
   @@index([isActive])
   @@map("points_of_sale")
@@ -303,46 +316,58 @@ model Expense {
 }
 
 model Product {
-  id                    String      @id @default(uuid())
+  id                    String               @id @default(uuid())
   description           String
-  normalizedDescription String      @unique @map("normalized_description")
-  isActive              Boolean     @default(true) @map("is_active")
-  createdByUserId       String?     @map("created_by_user_id")
-  createdAt             DateTime    @default(now()) @map("created_at")
-  updatedAt             DateTime    @updatedAt @map("updated_at")
-  createdBy             User?       @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  normalizedDescription String               @unique @map("normalized_description")
+  isActive              Boolean              @default(true) @map("is_active")
+  createdByUserId       String?              @map("created_by_user_id")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  createdBy             User?                @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   orderItems            OrderItem[]
+  inventoryStocks       InventoryStock[]
+  inventoryEntryItems   InventoryEntryItem[]
+  inventoryMovements    InventoryMovement[]
 
   @@index([isActive])
   @@map("products")
 }
 
 model Order {
-  id               String              @id @default(uuid())
-  userId           String              @map("user_id")
-  pointOfSaleId    String?             @map("point_of_sale_id")
-  clientId         String              @map("client_id")
-  documentSequence Int                 @map("document_sequence")
-  documentNumber   String              @unique @map("document_number")
-  clientName       String              @map("client_name")
-  clientDocument   String              @map("client_document")
-  deliveryAddress  String?             @map("delivery_address") @db.VarChar(300)
-  clientPhone      String?             @map("client_phone") @db.VarChar(50)
-  paymentMethod    OrderPaymentMethod? @map("payment_method")
-  observations     String?             @db.Text
-  totalAmount      Decimal             @map("total_amount") @db.Decimal(14, 2)
-  invoicedAt       DateTime?           @map("invoiced_at")
-  createdAt        DateTime            @default(now()) @map("created_at")
-  updatedAt        DateTime            @updatedAt @map("updated_at")
-  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pointOfSale      PointOfSale?        @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
-  client           Client              @relation(fields: [clientId], references: [id])
-  items            OrderItem[]
+  id                 String              @id @default(uuid())
+  userId             String              @map("user_id")
+  pointOfSaleId      String?             @map("point_of_sale_id")
+  clientId           String              @map("client_id")
+  documentSequence   Int                 @map("document_sequence")
+  documentNumber     String              @unique @map("document_number")
+  clientName         String              @map("client_name")
+  clientDocument     String              @map("client_document")
+  deliveryAddress    String?             @map("delivery_address") @db.VarChar(300)
+  clientPhone        String?             @map("client_phone") @db.VarChar(50)
+  paymentMethod      OrderPaymentMethod? @map("payment_method")
+  observations       String?             @db.Text
+  totalAmount        Decimal             @map("total_amount") @db.Decimal(14, 2)
+  invoicedAt         DateTime?           @map("invoiced_at")
+  status             RecordStatus        @default(ACTIVE)
+  inventoryAppliedAt DateTime?           @map("inventory_applied_at")
+  voidReason         String?             @map("void_reason")
+  voidedAt           DateTime?           @map("voided_at")
+  voidedByUserId     String?             @map("voided_by_user_id")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  user               User                @relation("OrderCreator", fields: [userId], references: [id], onDelete: Cascade)
+  voidedBy           User?               @relation("OrderVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
+  pointOfSale        PointOfSale?        @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  client             Client              @relation(fields: [clientId], references: [id])
+  items              OrderItem[]
+  inventoryMovements InventoryMovement[]
 
   @@index([userId])
   @@index([pointOfSaleId, documentSequence])
   @@index([clientId])
   @@index([createdAt])
+  @@index([status])
+  @@index([voidedByUserId])
   @@map("orders")
 }
 
@@ -360,6 +385,84 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
   @@map("order_items")
+}
+
+model InventoryStock {
+  id            String      @id @default(uuid())
+  pointOfSaleId String      @map("point_of_sale_id")
+  productId     String      @map("product_id")
+  quantity      Decimal     @default(0) @db.Decimal(14, 3)
+  isActive      Boolean     @default(true) @map("is_active")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  pointOfSale   PointOfSale @relation(fields: [pointOfSaleId], references: [id], onDelete: Cascade)
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([pointOfSaleId, productId])
+  @@index([productId])
+  @@index([pointOfSaleId, isActive])
+  @@map("inventory_stocks")
+}
+
+model InventoryEntry {
+  id                 String               @id @default(uuid())
+  userId             String               @map("user_id")
+  pointOfSaleId      String               @map("point_of_sale_id")
+  documentSequence   Int                  @map("document_sequence")
+  documentNumber     String               @unique @map("document_number")
+  supplierName       String               @map("supplier_name")
+  remittanceNumber   String?              @map("remittance_number")
+  observations       String?              @db.Text
+  entryDate          DateTime             @map("entry_date")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  pointOfSale        PointOfSale          @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  items              InventoryEntryItem[]
+  inventoryMovements InventoryMovement[]
+
+  @@index([userId])
+  @@index([pointOfSaleId, documentSequence])
+  @@index([entryDate])
+  @@map("inventory_entries")
+}
+
+model InventoryEntryItem {
+  id                 String         @id @default(uuid())
+  inventoryEntryId   String         @map("inventory_entry_id")
+  productId          String         @map("product_id")
+  productDescription String         @map("product_description")
+  quantity           Decimal        @db.Decimal(14, 3)
+  inventoryEntry     InventoryEntry @relation(fields: [inventoryEntryId], references: [id], onDelete: Cascade)
+  product            Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([inventoryEntryId])
+  @@index([productId])
+  @@map("inventory_entry_items")
+}
+
+model InventoryMovement {
+  id               String                @id @default(uuid())
+  pointOfSaleId    String                @map("point_of_sale_id")
+  productId        String                @map("product_id")
+  userId           String                @map("user_id")
+  inventoryEntryId String?               @map("inventory_entry_id")
+  orderId          String?               @map("order_id")
+  type             InventoryMovementType
+  quantityChange   Decimal               @map("quantity_change") @db.Decimal(14, 3)
+  balanceAfter     Decimal               @map("balance_after") @db.Decimal(14, 3)
+  createdAt        DateTime              @default(now()) @map("created_at")
+  pointOfSale      PointOfSale           @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  product          Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  inventoryEntry   InventoryEntry?       @relation(fields: [inventoryEntryId], references: [id], onDelete: SetNull)
+  order            Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([pointOfSaleId, createdAt])
+  @@index([productId, createdAt])
+  @@index([inventoryEntryId])
+  @@index([orderId])
+  @@map("inventory_movements")
 }
 
 model EmailVerificationCode {
