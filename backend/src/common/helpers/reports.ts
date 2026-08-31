@@ -53,8 +53,10 @@ const INK = '#17211b';
 const MUTED = '#5f6f65';
 const LINE = '#cfd9d2';
 const DANGER = '#b42318';
+const THERMAL_INK = '#000000';
 
 let cachedLogo: Buffer | null | undefined;
+let cachedThermalLogo: Buffer | null | undefined;
 
 export function formatMoney(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -220,27 +222,26 @@ export async function buildCashReceiptPdf(data: CashReceiptData) {
   const left = 16;
   const width = pageWidth - 32;
   const receiptTitle = data.kind === 'income' ? 'RECIBO DE INGRESO' : 'RECIBO DE EGRESO';
-  const partyAccent = data.kind === 'income' ? BRAND_GREEN : '#b7791f';
-  const logo = getLogoBuffer();
+  const logo = getThermalLogoBuffer();
 
   if (logo) doc.image(logo, left, 16, { fit: [width, 66], align: 'center', valign: 'center' });
-  else doc.font('Helvetica-Bold').fontSize(20).fillColor(BRAND_GREEN).text('AgroPlastick', left, 30, { width, align: 'center' });
+  else doc.font('Helvetica-Bold').fontSize(20).fillColor(THERMAL_INK).text('AgroPlastick', left, 30, { width, align: 'center' });
   let y = 91;
   dashedLine(doc, y, left, pageWidth - left);
   y += 12;
 
-  doc.font('Helvetica-Bold').fontSize(11).fillColor(INK).text(receiptTitle, left, y, { width, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(THERMAL_INK).text(receiptTitle, left, y, { width, align: 'center' });
   y += 18;
-  doc.font('Helvetica-Bold').fontSize(16).fillColor(partyAccent).text(data.number, left, y, { width, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(16).fillColor(THERMAL_INK).text(data.number, left, y, { width, align: 'center' });
   y += 25;
   ticketPair(doc, 'Fecha', data.date, y, width);
   y += 15;
   dashedLine(doc, y, left, pageWidth - left);
   y += 12;
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text(data.partyLabel.toUpperCase(), left, y, { width });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(data.partyLabel.toUpperCase(), left, y, { width });
   y += 11;
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(INK).text(data.party, left, y, { width });
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(THERMAL_INK).text(data.party, left, y, { width });
   y += layout.partyHeight + 5;
   if (data.document) {
     ticketPair(doc, 'Documento', data.document, y, width);
@@ -249,18 +250,18 @@ export async function buildCashReceiptPdf(data: CashReceiptData) {
   dashedLine(doc, y, left, pageWidth - left);
   y += 12;
 
-  doc.roundedRect(left, y, width, 58, 5).fillAndStroke(PALE_GREEN, '#d9eee2');
-  doc.font('Helvetica-Bold').fontSize(7.5).fillColor(MUTED).text('VALOR', left + 10, y + 9, { width: width - 20, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(20).fillColor(BRAND_DARK).text(formatMoney(data.amount), left + 6, y + 25, {
+  doc.roundedRect(left, y, width, 58, 5).lineWidth(1).fillAndStroke('#ffffff', THERMAL_INK);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('VALOR', left + 10, y + 9, { width: width - 20, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(THERMAL_INK).text(formatMoney(data.amount), left + 6, y + 25, {
     width: width - 12,
     align: 'center',
   });
   y += 70;
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('CONCEPTO', left, y, { width });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('CONCEPTO', left, y, { width });
   y += 12;
-  doc.roundedRect(left, y, width, layout.conceptHeight + 10, 3).fillAndStroke('#f8fbf9', LINE);
-  doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.concept || '-', left + 5, y + 5, {
+  doc.roundedRect(left, y, width, layout.conceptHeight + 10, 3).lineWidth(0.8).fillAndStroke('#ffffff', THERMAL_INK);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(data.concept || '-', left + 5, y + 5, {
     width: width - 10,
     height: layout.conceptHeight,
   });
@@ -290,18 +291,18 @@ export async function buildCashReceiptPdf(data: CashReceiptData) {
   y += 12;
   ticketPair(doc, 'Elaborado por', data.preparedBy, y, width);
   y += layout.preparedHeight + 27;
-  doc.moveTo(left, y).lineTo(pageWidth - left, y).lineWidth(0.7).strokeColor('#7d8981').stroke();
+  doc.moveTo(left, y).lineTo(pageWidth - left, y).lineWidth(1).strokeColor(THERMAL_INK).stroke();
   doc
     .font('Helvetica-Bold')
     .fontSize(7.5)
-    .fillColor(MUTED)
+    .fillColor(THERMAL_INK)
     .text(data.kind === 'income' ? 'RECIBIDO DE / FIRMA' : 'APROBADO POR', left, y + 7, { width, align: 'center' });
   if (data.approvedBy) {
-    doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.approvedBy, left, y - 14, { width, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(data.approvedBy, left, y - 14, { width, align: 'center' });
   }
   y += 35;
-  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(BRAND_DARK).text('AgroPlastick', left, y + 8, { width, align: 'center' });
-  doc.font('Helvetica').fontSize(7).fillColor(MUTED).text('Empaques, amarres y proteccion para el agro', left, y + 22, {
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(THERMAL_INK).text('AgroPlastick', left, y + 8, { width, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text('Empaques, amarres y proteccion para el agro', left, y + 22, {
     width,
     align: 'center',
   });
@@ -334,7 +335,7 @@ function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
   const documentHeight = data.document ? pairHeight(data.document) : 0;
   const conceptHeight = Math.max(
     10,
-    measureDoc.font('Helvetica').fontSize(8).heightOfString(data.concept || '-', { width: width - 10 }),
+    measureDoc.font('Helvetica-Bold').fontSize(8).heightOfString(data.concept || '-', { width: width - 10 }),
   );
   const detailHeights = data.details.map((detail) => pairHeight(detail.value || '-'));
   const paymentHeight = data.paymentMethod ? pairHeight(data.paymentMethod) : 0;
@@ -560,12 +561,15 @@ function addPageNumbers(doc: any) {
 }
 
 function ticketPair(doc: any, label: string, value: string, y: number, contentWidth: number) {
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text(label, 16, y, { width: 65 });
-  doc.font('Helvetica').fontSize(8).fillColor(INK).text(value || '-', 82, y, { width: contentWidth - 66, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(label, 16, y, { width: 65 });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(value || '-', 82, y, {
+    width: contentWidth - 66,
+    align: 'right',
+  });
 }
 
 function dashedLine(doc: any, y: number, start: number, end: number) {
-  doc.moveTo(start, y).lineTo(end, y).dash(3, { space: 3 }).lineWidth(0.6).strokeColor('#8f9b93').stroke().undash();
+  doc.moveTo(start, y).lineTo(end, y).dash(3, { space: 3 }).lineWidth(0.8).strokeColor(THERMAL_INK).stroke().undash();
 }
 
 function formatQuantity(value: number) {
@@ -583,6 +587,19 @@ function getLogoBuffer() {
   const logoPath = candidates.find((candidate) => existsSync(candidate));
   cachedLogo = logoPath ? readFileSync(logoPath) : null;
   return cachedLogo;
+}
+
+function getThermalLogoBuffer() {
+  if (cachedThermalLogo !== undefined) return cachedThermalLogo;
+  const filename = join('public', 'brand', 'agroplastic-logo-thermal.png');
+  const candidates = [
+    join(process.cwd(), filename),
+    join(process.cwd(), 'backend', filename),
+    join(__dirname, '..', '..', '..', filename),
+  ];
+  const logoPath = candidates.find((candidate) => existsSync(candidate));
+  cachedThermalLogo = logoPath ? readFileSync(logoPath) : null;
+  return cachedThermalLogo;
 }
 
 function escapeHtml(value: string) {
