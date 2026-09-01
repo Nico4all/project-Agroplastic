@@ -46,10 +46,7 @@ export class OrdersService {
     const client = await this.clients.findAccessible(actor, dto.clientId);
     if (!client.isActive) throw new BadRequestException('El cliente esta inactivo');
 
-    const productIds = dto.items.map((item) => item.productId);
-    if (new Set(productIds).size !== productIds.length) {
-      throw new BadRequestException('No repitas el mismo producto en un pedido');
-    }
+    const productIds = [...new Set(dto.items.map((item) => item.productId))];
 
     const stocks = await this.prisma.inventoryStock.findMany({
       where: {
@@ -75,6 +72,11 @@ export class OrdersService {
         lineTotal: quantity.mul(unitPrice).toDecimalPlaces(2),
       };
     });
+    const requestedQuantityByProduct = new Map<string, Prisma.Decimal>();
+    for (const item of items) {
+      const currentQuantity = requestedQuantityByProduct.get(item.productId) || new Prisma.Decimal(0);
+      requestedQuantityByProduct.set(item.productId, currentQuantity.add(item.quantity));
+    }
     const totalAmount = items.reduce((total, item) => total.add(item.lineTotal), new Prisma.Decimal(0));
     if (new Set(dto.payments.map((payment) => payment.method)).size !== dto.payments.length) {
       throw new BadRequestException('No repitas la misma forma de pago');
@@ -122,30 +124,31 @@ export class OrdersService {
         include: this.includeRelations(),
       });
 
-      for (const item of items) {
+      for (const [productId, quantity] of requestedQuantityByProduct) {
+        const productDescription = stocksByProduct.get(productId)!.product.description;
         const changed = await transaction.inventoryStock.updateMany({
           where: {
             pointOfSaleId: actor.pointOfSaleId!,
-            productId: item.productId,
+            productId,
             isActive: true,
-            quantity: { gte: item.quantity },
+            quantity: { gte: quantity },
           },
-          data: { quantity: { decrement: item.quantity } },
+          data: { quantity: { decrement: quantity } },
         });
         if (changed.count !== 1) {
-          throw new BadRequestException(`Inventario insuficiente para ${item.productDescription}`);
+          throw new BadRequestException(`Inventario insuficiente para ${productDescription}`);
         }
         const stock = await transaction.inventoryStock.findUniqueOrThrow({
-          where: { pointOfSaleId_productId: { pointOfSaleId: actor.pointOfSaleId!, productId: item.productId } },
+          where: { pointOfSaleId_productId: { pointOfSaleId: actor.pointOfSaleId!, productId } },
         });
         await transaction.inventoryMovement.create({
           data: {
             pointOfSaleId: actor.pointOfSaleId!,
-            productId: item.productId,
+            productId,
             userId: actor.id,
             orderId: created.id,
             type: InventoryMovementType.ORDER,
-            quantityChange: item.quantity.negated(),
+            quantityChange: quantity.negated(),
             balanceAfter: stock.quantity,
           },
         });
@@ -194,24 +197,29 @@ export class OrdersService {
       if (changed.count !== 1) throw new BadRequestException('El pedido ya fue anulado');
 
       if (current.inventoryAppliedAt) {
+        const returnedQuantityByProduct = new Map<string, Prisma.Decimal>();
         for (const item of current.items) {
+          const currentQuantity = returnedQuantityByProduct.get(item.productId) || new Prisma.Decimal(0);
+          returnedQuantityByProduct.set(item.productId, currentQuantity.add(item.quantity));
+        }
+        for (const [productId, quantity] of returnedQuantityByProduct) {
           const stock = await tx.inventoryStock.update({
             where: {
               pointOfSaleId_productId: {
                 pointOfSaleId: current.pointOfSaleId!,
-                productId: item.productId,
+                productId,
               },
             },
-            data: { quantity: { increment: item.quantity } },
+            data: { quantity: { increment: quantity } },
           });
           await tx.inventoryMovement.create({
             data: {
               pointOfSaleId: current.pointOfSaleId!,
-              productId: item.productId,
+              productId,
               userId: actor.id,
               orderId: current.id,
               type: InventoryMovementType.ORDER_VOID,
-              quantityChange: item.quantity,
+              quantityChange: quantity,
               balanceAfter: stock.quantity,
             },
           });

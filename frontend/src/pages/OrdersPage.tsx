@@ -148,13 +148,25 @@ export function OrdersPage() {
       setError('Selecciona un producto en cada linea');
       return;
     }
-    const insufficient = lines.find((line) => {
-      const product = products.find((item) => item.id === line.productId);
-      return !product || Number(line.quantity) > product.quantity;
+    const requestedQuantityByProduct = new Map<string, number>();
+    lines.forEach((line) => {
+      requestedQuantityByProduct.set(
+        line.productId,
+        (requestedQuantityByProduct.get(line.productId) || 0) + Number(line.quantity || 0),
+      );
+    });
+    const insufficient = [...requestedQuantityByProduct].find(([productId, requestedQuantity]) => {
+      const product = products.find((item) => item.id === productId);
+      return !product || requestedQuantity > product.quantity;
     });
     if (insufficient) {
-      const product = products.find((item) => item.id === insufficient.productId);
-      setError(`Inventario insuficiente para ${product?.description || 'el producto seleccionado'}`);
+      const [productId, requestedQuantity] = insufficient;
+      const product = products.find((item) => item.id === productId);
+      setError(
+        `Inventario insuficiente para ${product?.description || 'el producto seleccionado'}. `
+        + `Disponible: ${product?.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 }) || 0}; `
+        + `solicitado: ${requestedQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}.`,
+      );
       return;
     }
     if (new Set(paymentLines.map((line) => line.method)).size !== paymentLines.length) {
@@ -334,7 +346,10 @@ export function OrdersPage() {
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-bold">Productos</p>
+              <div>
+                <p className="text-sm font-bold">Productos</p>
+                <p className="text-xs text-mute">Puedes repetir un producto para asignarle otro precio.</p>
+              </div>
               <Button variant="secondary" className="px-3 py-1.5" onClick={() => setLines((current) => [...current, emptyLine()])}><Plus className="h-4 w-4" /> Agregar</Button>
             </div>
             {lines.map((line, index) => (
