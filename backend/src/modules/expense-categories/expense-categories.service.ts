@@ -43,26 +43,28 @@ export class ExpenseCategoriesService {
     const current = await this.prisma.expenseCategory.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Categoria no encontrada');
 
-    return this.prisma.expenseCategory.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
-      },
-    });
+    try {
+      return await this.prisma.expenseCategory.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('La categoria ya existe');
+      }
+      throw error;
+    }
   }
 
   private async ensureDefaults() {
-    const existing = await this.prisma.expenseCategory.findMany({
-      where: { name: { in: DEFAULT_EXPENSE_CATEGORIES } },
-      select: { name: true },
-    });
-    const names = new Set(existing.map((item) => item.name));
-    const missing = DEFAULT_EXPENSE_CATEGORIES.filter((name) => !names.has(name));
-    if (!missing.length) return;
+    const existingCount = await this.prisma.expenseCategory.count();
+    if (existingCount > 0) return;
 
     await this.prisma.expenseCategory.createMany({
-      data: missing.map((name) => ({ name })),
+      data: DEFAULT_EXPENSE_CATEGORIES.map((name) => ({ name })),
       skipDuplicates: true,
     });
   }

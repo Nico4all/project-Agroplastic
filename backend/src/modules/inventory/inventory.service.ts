@@ -72,7 +72,7 @@ export class InventoryService {
   }
 
   async createEntry(userId: string, dto: CreateInventoryEntryDto) {
-    const actor = await this.users.getActiveUser(userId);
+    const actor = await this.users.ensureAdmin(userId);
     const pointOfSaleId = await this.resolvePointOfSale(actor, dto.pointOfSaleId);
     const supplierName = cleanDisplayText(dto.supplierName);
     if (!supplierName) throw new BadRequestException('El proveedor es obligatorio');

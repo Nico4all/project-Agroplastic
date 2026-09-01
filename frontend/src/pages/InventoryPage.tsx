@@ -114,7 +114,7 @@ export function InventoryPage() {
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-extrabold tracking-tight">Inventario</h1><p className="text-sm text-mute">Existencias y entradas de mercancía por punto de venta.</p></div>
-        <Button onClick={openCreate} disabled={!pointOfSaleId}><PackagePlus className="h-4 w-4" /> Nueva entrada</Button>
+        {isAdmin && <Button onClick={openCreate} disabled={!pointOfSaleId}><PackagePlus className="h-4 w-4" /> Nueva entrada</Button>}
       </div>
 
       <Card className="p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -136,7 +136,7 @@ export function InventoryPage() {
 
       {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="border-b border-line px-4 py-3"><h2 className="font-bold">Historial de entradas</h2></div>{entriesLoading || !entries ? <div className="p-6"><Spinner /></div> : entries.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Proveedor</th><th className="px-4 py-3">Remisión</th><th className="px-4 py-3">Productos</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{entries.data.map((entry) => <tr key={entry.id}><td className="px-4 py-3 font-mono font-semibold">{entry.documentNumber}</td><td className="px-4 py-3">{dateInput(entry.entryDate)}</td><td className="px-4 py-3 font-semibold">{entry.supplierName}</td><td className="px-4 py-3">{entry.remittanceNumber || '-'}</td><td className="px-4 py-3"><ul className="space-y-1">{entry.items.map((item) => <li key={item.id}>{item.productDescription} <span className="font-bold text-brand-dark">+{item.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</span></li>)}</ul></td><td className="px-4 py-3">{entry.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={entries.page} pageSize={entries.pageSize} total={entries.total} onChange={setPage} /></div></> : <EmptyState title="Sin entradas registradas" />}</Card>}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nueva entrada de mercancía" size="large">
+      <Modal open={isAdmin && modalOpen} onClose={() => setModalOpen(false)} title="Nueva entrada de mercancía" size="large">
         <form onSubmit={submit} className="space-y-4">
           <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">La entrada aumentará el inventario de <strong>{pointName}</strong>.</p>
           <div className="grid gap-3 sm:grid-cols-3"><Field label="Proveedor"><Input required minLength={2} maxLength={191} value={supplierName} onChange={(event) => setSupplierName(event.target.value)} placeholder="Nombre del proveedor" /></Field><Field label="Remisión" hint="Opcional"><Input maxLength={191} value={remittanceNumber} onChange={(event) => setRemittanceNumber(event.target.value)} /></Field><Field label="Fecha"><Input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></Field></div>
