@@ -75,70 +75,84 @@ enum InventoryMovementType {
   ORDER_VOID
   ADJUSTMENT_ADD
   ADJUSTMENT_SUBTRACT
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+enum InventoryAdjustmentOperation {
+  ADD
+  SUBTRACT
 }
 
 model User {
-  id                 String                  @id @default(uuid())
-  name               String
-  email              String                  @unique
-  username           String                  @unique
-  passwordHash       String                  @map("password_hash")
-  role               UserRole                @default(BODEGA)
-  pointOfSaleId      String?                 @map("point_of_sale_id")
-  isActive           Boolean                 @default(true) @map("is_active")
-  emailVerifiedAt    DateTime?               @map("email_verified_at")
-  createdAt          DateTime                @default(now()) @map("created_at")
-  updatedAt          DateTime                @updatedAt @map("updated_at")
-  accounts           Account[]
-  categories         Category[]
-  transactions       Transaction[]
-  transfers          Transfer[]
-  loans              Loan[]
-  loanPayments       LoanPayment[]
-  clients            Client[]                @relation("ClientCreator")
-  expenseCategories  ExpenseCategory[]       @relation("ExpenseCategoryCreator")
-  incomes            Income[]                @relation("IncomeCreator")
-  expenses           Expense[]               @relation("ExpenseCreator")
-  products           Product[]               @relation("ProductCreator")
-  orders             Order[]                 @relation("OrderCreator")
-  voidedOrders       Order[]                 @relation("OrderVoidUser")
-  inventoryEntries   InventoryEntry[]
-  inventoryMovements InventoryMovement[]
+  id                   String                  @id @default(uuid())
+  name                 String
+  email                String                  @unique
+  username             String                  @unique
+  passwordHash         String                  @map("password_hash")
+  role                 UserRole                @default(BODEGA)
+  pointOfSaleId        String?                 @map("point_of_sale_id")
+  isActive             Boolean                 @default(true) @map("is_active")
+  emailVerifiedAt      DateTime?               @map("email_verified_at")
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+  accounts             Account[]
+  categories           Category[]
+  transactions         Transaction[]
+  transfers            Transfer[]
+  loans                Loan[]
+  loanPayments         LoanPayment[]
+  clients              Client[]                @relation("ClientCreator")
+  expenseCategories    ExpenseCategory[]       @relation("ExpenseCategoryCreator")
+  incomes              Income[]                @relation("IncomeCreator")
+  expenses             Expense[]               @relation("ExpenseCreator")
+  products             Product[]               @relation("ProductCreator")
+  orders               Order[]                 @relation("OrderCreator")
+  voidedOrders         Order[]                 @relation("OrderVoidUser")
+  inventoryEntries     InventoryEntry[]
+  inventoryAdjustments InventoryAdjustment[]
+  inventoryTransfers   InventoryTransfer[]
+  inventoryMovements   InventoryMovement[]
   portfolioCollections PortfolioCollection[]
-  voidedIncomes      Income[]                @relation("IncomeVoidUser")
-  voidedExpenses     Expense[]               @relation("ExpenseVoidUser")
-  refreshTokens      RefreshToken[]
-  emailCodes         EmailVerificationCode[]
-  pointOfSale        PointOfSale?            @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  voidedIncomes        Income[]                @relation("IncomeVoidUser")
+  voidedExpenses       Expense[]               @relation("ExpenseVoidUser")
+  refreshTokens        RefreshToken[]
+  emailCodes           EmailVerificationCode[]
+  pointOfSale          PointOfSale?            @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
 
   @@index([pointOfSaleId])
   @@map("users")
 }
 
 model PointOfSale {
-  id                       String              @id @default(uuid())
-  name                     String
-  code                     String              @unique
-  documentPrefix           String              @unique @map("document_prefix")
-  nextIncomeNumber         Int                 @default(1) @map("next_income_number")
-  nextExpenseNumber        Int                 @default(1) @map("next_expense_number")
-  nextOrderNumber          Int                 @default(1) @map("next_order_number")
-  nextInventoryEntryNumber Int                 @default(1) @map("next_inventory_entry_number")
-  nextPortfolioCollectionNumber Int            @default(1) @map("next_portfolio_collection_number")
-  city                     String?
-  address                  String?             @db.VarChar(300)
-  isActive                 Boolean             @default(true) @map("is_active")
-  createdAt                DateTime            @default(now()) @map("created_at")
-  updatedAt                DateTime            @updatedAt @map("updated_at")
-  users                    User[]
-  incomes                  Income[]
-  expenses                 Expense[]
-  orders                   Order[]
-  priceListPrices          PointOfSalePrice[]
-  inventoryStocks          InventoryStock[]
-  inventoryEntries         InventoryEntry[]
-  inventoryMovements       InventoryMovement[]
-  portfolioCollections     PortfolioCollection[]
+  id                            String                @id @default(uuid())
+  name                          String
+  code                          String                @unique
+  documentPrefix                String                @unique @map("document_prefix")
+  nextIncomeNumber              Int                   @default(1) @map("next_income_number")
+  nextExpenseNumber             Int                   @default(1) @map("next_expense_number")
+  nextOrderNumber               Int                   @default(1) @map("next_order_number")
+  nextInventoryEntryNumber      Int                   @default(1) @map("next_inventory_entry_number")
+  nextInventoryAdjustmentNumber Int                   @default(1) @map("next_inventory_adjustment_number")
+  nextInventoryTransferNumber   Int                   @default(1) @map("next_inventory_transfer_number")
+  nextPortfolioCollectionNumber Int                   @default(1) @map("next_portfolio_collection_number")
+  city                          String?
+  address                       String?               @db.VarChar(300)
+  isActive                      Boolean               @default(true) @map("is_active")
+  createdAt                     DateTime              @default(now()) @map("created_at")
+  updatedAt                     DateTime              @updatedAt @map("updated_at")
+  users                         User[]
+  incomes                       Income[]
+  expenses                      Expense[]
+  orders                        Order[]
+  priceListPrices               PointOfSalePrice[]
+  inventoryStocks               InventoryStock[]
+  inventoryEntries              InventoryEntry[]
+  inventoryAdjustments          InventoryAdjustment[]
+  outgoingInventoryTransfers    InventoryTransfer[]   @relation("InventoryTransferOrigin")
+  incomingInventoryTransfers    InventoryTransfer[]   @relation("InventoryTransferDestination")
+  inventoryMovements            InventoryMovement[]
+  portfolioCollections          PortfolioCollection[]
 
   @@index([isActive])
   @@map("points_of_sale")
@@ -321,17 +335,19 @@ model Expense {
 }
 
 model Product {
-  id                    String               @id @default(uuid())
+  id                    String                @id @default(uuid())
   description           String
-  normalizedDescription String               @unique @map("normalized_description")
-  isActive              Boolean              @default(true) @map("is_active")
-  createdByUserId       String?              @map("created_by_user_id")
-  createdAt             DateTime             @default(now()) @map("created_at")
-  updatedAt             DateTime             @updatedAt @map("updated_at")
-  createdBy             User?                @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  normalizedDescription String                @unique @map("normalized_description")
+  isActive              Boolean               @default(true) @map("is_active")
+  createdByUserId       String?               @map("created_by_user_id")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+  createdBy             User?                 @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   orderItems            OrderItem[]
   inventoryStocks       InventoryStock[]
   inventoryEntryItems   InventoryEntryItem[]
+  inventoryAdjustments  InventoryAdjustment[]
+  inventoryTransfers    InventoryTransfer[]
   inventoryMovements    InventoryMovement[]
 
   @@index([isActive])
@@ -339,31 +355,31 @@ model Product {
 }
 
 model Order {
-  id                 String              @id @default(uuid())
-  userId             String              @map("user_id")
-  pointOfSaleId      String?             @map("point_of_sale_id")
-  clientId           String              @map("client_id")
-  documentSequence   Int                 @map("document_sequence")
-  documentNumber     String              @unique @map("document_number")
-  clientName         String              @map("client_name")
-  clientDocument     String              @map("client_document")
-  deliveryAddress    String?             @map("delivery_address") @db.VarChar(300)
-  clientPhone        String?             @map("client_phone") @db.VarChar(50)
-  paymentMethod      OrderPaymentMethod? @map("payment_method")
-  observations       String?             @db.Text
-  totalAmount        Decimal             @map("total_amount") @db.Decimal(14, 2)
-  invoicedAt         DateTime?           @map("invoiced_at")
-  status             RecordStatus        @default(ACTIVE)
-  inventoryAppliedAt DateTime?           @map("inventory_applied_at")
-  voidReason         String?             @map("void_reason")
-  voidedAt           DateTime?           @map("voided_at")
-  voidedByUserId     String?             @map("voided_by_user_id")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  user               User                @relation("OrderCreator", fields: [userId], references: [id], onDelete: Cascade)
-  voidedBy           User?               @relation("OrderVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
-  pointOfSale        PointOfSale?        @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
-  client             Client              @relation(fields: [clientId], references: [id])
+  id                 String                @id @default(uuid())
+  userId             String                @map("user_id")
+  pointOfSaleId      String?               @map("point_of_sale_id")
+  clientId           String                @map("client_id")
+  documentSequence   Int                   @map("document_sequence")
+  documentNumber     String                @unique @map("document_number")
+  clientName         String                @map("client_name")
+  clientDocument     String                @map("client_document")
+  deliveryAddress    String?               @map("delivery_address") @db.VarChar(300)
+  clientPhone        String?               @map("client_phone") @db.VarChar(50)
+  paymentMethod      OrderPaymentMethod?   @map("payment_method")
+  observations       String?               @db.Text
+  totalAmount        Decimal               @map("total_amount") @db.Decimal(14, 2)
+  invoicedAt         DateTime?             @map("invoiced_at")
+  status             RecordStatus          @default(ACTIVE)
+  inventoryAppliedAt DateTime?             @map("inventory_applied_at")
+  voidReason         String?               @map("void_reason")
+  voidedAt           DateTime?             @map("voided_at")
+  voidedByUserId     String?               @map("voided_by_user_id")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  user               User                  @relation("OrderCreator", fields: [userId], references: [id], onDelete: Cascade)
+  voidedBy           User?                 @relation("OrderVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
+  pointOfSale        PointOfSale?          @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  client             Client                @relation(fields: [clientId], references: [id])
   items              OrderItem[]
   payments           OrderPayment[]
   collections        PortfolioCollection[]
@@ -484,26 +500,90 @@ model InventoryEntryItem {
   @@map("inventory_entry_items")
 }
 
+model InventoryAdjustment {
+  id                 String                       @id @default(uuid())
+  userId             String                       @map("user_id")
+  pointOfSaleId      String                       @map("point_of_sale_id")
+  productId          String                       @map("product_id")
+  documentSequence   Int                          @map("document_sequence")
+  documentNumber     String                       @unique @map("document_number")
+  operation          InventoryAdjustmentOperation
+  quantity           Decimal                      @db.Decimal(14, 3)
+  balanceBefore      Decimal                      @map("balance_before") @db.Decimal(14, 3)
+  balanceAfter       Decimal                      @map("balance_after") @db.Decimal(14, 3)
+  observation        String?                      @db.Text
+  adjustmentDate     DateTime                     @default(now()) @map("adjustment_date")
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  updatedAt          DateTime                     @updatedAt @map("updated_at")
+  user               User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  pointOfSale        PointOfSale                  @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  product            Product                      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  inventoryMovements InventoryMovement[]
+
+  @@index([userId])
+  @@index([pointOfSaleId, documentSequence])
+  @@index([productId, adjustmentDate])
+  @@index([adjustmentDate])
+  @@map("inventory_adjustments")
+}
+
+model InventoryTransfer {
+  id                       String              @id @default(uuid())
+  userId                   String              @map("user_id")
+  originPointOfSaleId      String              @map("origin_point_of_sale_id")
+  destinationPointOfSaleId String              @map("destination_point_of_sale_id")
+  productId                String              @map("product_id")
+  documentSequence         Int                 @map("document_sequence")
+  documentNumber           String              @unique @map("document_number")
+  quantity                 Decimal             @db.Decimal(14, 3)
+  originBalanceBefore      Decimal             @map("origin_balance_before") @db.Decimal(14, 3)
+  originBalanceAfter       Decimal             @map("origin_balance_after") @db.Decimal(14, 3)
+  destinationBalanceBefore Decimal             @map("destination_balance_before") @db.Decimal(14, 3)
+  destinationBalanceAfter  Decimal             @map("destination_balance_after") @db.Decimal(14, 3)
+  observation              String?             @db.Text
+  transferDate             DateTime            @default(now()) @map("transfer_date")
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  user                     User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  originPointOfSale        PointOfSale         @relation("InventoryTransferOrigin", fields: [originPointOfSaleId], references: [id], onDelete: Restrict)
+  destinationPointOfSale   PointOfSale         @relation("InventoryTransferDestination", fields: [destinationPointOfSaleId], references: [id], onDelete: Restrict)
+  product                  Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  inventoryMovements       InventoryMovement[]
+
+  @@index([userId])
+  @@index([originPointOfSaleId, documentSequence])
+  @@index([destinationPointOfSaleId, transferDate])
+  @@index([productId, transferDate])
+  @@index([transferDate])
+  @@map("inventory_transfers")
+}
+
 model InventoryMovement {
-  id               String                @id @default(uuid())
-  pointOfSaleId    String                @map("point_of_sale_id")
-  productId        String                @map("product_id")
-  userId           String                @map("user_id")
-  inventoryEntryId String?               @map("inventory_entry_id")
-  orderId          String?               @map("order_id")
-  type             InventoryMovementType
-  quantityChange   Decimal               @map("quantity_change") @db.Decimal(14, 3)
-  balanceAfter     Decimal               @map("balance_after") @db.Decimal(14, 3)
-  createdAt        DateTime              @default(now()) @map("created_at")
-  pointOfSale      PointOfSale           @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
-  product          Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
-  user             User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
-  inventoryEntry   InventoryEntry?       @relation(fields: [inventoryEntryId], references: [id], onDelete: SetNull)
-  order            Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  id                    String                @id @default(uuid())
+  pointOfSaleId         String                @map("point_of_sale_id")
+  productId             String                @map("product_id")
+  userId                String                @map("user_id")
+  inventoryEntryId      String?               @map("inventory_entry_id")
+  inventoryAdjustmentId String?               @map("inventory_adjustment_id")
+  inventoryTransferId   String?               @map("inventory_transfer_id")
+  orderId               String?               @map("order_id")
+  type                  InventoryMovementType
+  quantityChange        Decimal               @map("quantity_change") @db.Decimal(14, 3)
+  balanceAfter          Decimal               @map("balance_after") @db.Decimal(14, 3)
+  createdAt             DateTime              @default(now()) @map("created_at")
+  pointOfSale           PointOfSale           @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  product               Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  inventoryEntry        InventoryEntry?       @relation(fields: [inventoryEntryId], references: [id], onDelete: SetNull)
+  inventoryAdjustment   InventoryAdjustment?  @relation(fields: [inventoryAdjustmentId], references: [id], onDelete: SetNull)
+  inventoryTransfer     InventoryTransfer?    @relation(fields: [inventoryTransferId], references: [id], onDelete: SetNull)
+  order                 Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([pointOfSaleId, createdAt])
   @@index([productId, createdAt])
   @@index([inventoryEntryId])
+  @@index([inventoryAdjustmentId])
+  @@index([inventoryTransferId])
   @@index([orderId])
   @@map("inventory_movements")
 }

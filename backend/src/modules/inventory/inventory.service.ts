@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateInventoryAdjustmentDto, InventoryAdjustmentOperation } from './dto/create-inventory-adjustment.dto';
 import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
+import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 
@@ -200,6 +201,70 @@ export class InventoryService {
     return { data: rows.map((row) => this.serializeEntry(row)), total, page: query.page, pageSize: query.pageSize };
   }
 
+  async findAdjustments(userId: string, query: QueryInventoryDto) {
+    const actor = await this.users.getActiveUser(userId);
+    const pointOfSaleId = await this.resolvePointOfSale(actor, query.pointOfSaleId);
+    const adjustmentDate: Prisma.DateTimeFilter = {};
+    if (query.fromDate) adjustmentDate.gte = this.startOfDay(query.fromDate);
+    if (query.toDate) adjustmentDate.lte = this.endOfDay(query.toDate);
+    const where: Prisma.InventoryAdjustmentWhereInput = {
+      pointOfSaleId,
+      ...(Object.keys(adjustmentDate).length ? { adjustmentDate } : {}),
+      ...(query.search ? {
+        OR: [
+          { documentNumber: { contains: query.search } },
+          { observation: { contains: query.search } },
+          { product: { description: { contains: query.search } } },
+        ],
+      } : {}),
+    };
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.inventoryAdjustment.count({ where }),
+      this.prisma.inventoryAdjustment.findMany({
+        where,
+        include: this.adjustmentRelations(),
+        orderBy: { adjustmentDate: query.sort },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+    ]);
+    return { data: rows.map((row) => this.serializeAdjustment(row)), total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async findTransfers(userId: string, query: QueryInventoryDto) {
+    const actor = await this.users.getActiveUser(userId);
+    const pointOfSaleId = await this.resolvePointOfSale(actor, query.pointOfSaleId);
+    const transferDate: Prisma.DateTimeFilter = {};
+    if (query.fromDate) transferDate.gte = this.startOfDay(query.fromDate);
+    if (query.toDate) transferDate.lte = this.endOfDay(query.toDate);
+    const where: Prisma.InventoryTransferWhereInput = {
+      OR: [{ originPointOfSaleId: pointOfSaleId }, { destinationPointOfSaleId: pointOfSaleId }],
+      ...(Object.keys(transferDate).length ? { transferDate } : {}),
+      ...(query.search ? {
+        AND: [{
+          OR: [
+            { documentNumber: { contains: query.search } },
+            { observation: { contains: query.search } },
+            { product: { description: { contains: query.search } } },
+            { originPointOfSale: { name: { contains: query.search } } },
+            { destinationPointOfSale: { name: { contains: query.search } } },
+          ],
+        }],
+      } : {}),
+    };
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.inventoryTransfer.count({ where }),
+      this.prisma.inventoryTransfer.findMany({
+        where,
+        include: this.transferRelations(),
+        orderBy: { transferDate: query.sort },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+    ]);
+    return { data: rows.map((row) => this.serializeTransfer(row)), total, page: query.page, pageSize: query.pageSize };
+  }
+
   async findProductHistory(userId: string, query: QueryProductHistoryDto) {
     const context = await this.productHistoryContext(userId, query);
     const [total, rows, stats] = await this.prisma.$transaction([
@@ -299,7 +364,7 @@ export class InventoryService {
       cell.border = this.excelBorder();
     });
     sheet.getRow(6).height = 38;
-    sheet.getRow(8).values = ['FECHA', 'TIPO', 'DOCUMENTO', 'CLIENTE / PROVEEDOR', 'INVENTARIO ANTES', 'ENTRADA', 'SALIDA', 'INVENTARIO DESPUÉS', 'DETALLE', 'USUARIO'];
+    sheet.getRow(8).values = ['FECHA', 'TIPO', 'DOCUMENTO', 'TERCERO / BODEGA', 'INVENTARIO ANTES', 'ENTRADA', 'SALIDA', 'INVENTARIO DESPUÉS', 'DETALLE', 'USUARIO'];
     sheet.getRow(8).eachCell((cell) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF096B38' } };
       cell.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' } };
@@ -310,7 +375,7 @@ export class InventoryService {
     serialized.forEach((movement, index) => {
       const row = sheet.addRow({
         date: formatDate(movement.date),
-        type: movement.movementType === 'ENTRY' ? 'Entrada' : 'Pedido',
+        type: this.productHistoryMovementLabel(movement.movementType),
         document: movement.documentNumber,
         thirdParty: [movement.thirdPartyName, movement.thirdPartyDocument].filter(Boolean).join(' · '),
         before: movement.inventoryBefore,
@@ -414,7 +479,14 @@ export class InventoryService {
     const quantity = new Prisma.Decimal(dto.quantity);
     const isAddition = dto.operation === InventoryAdjustmentOperation.ADD;
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const adjustment = await this.prisma.$transaction(async (tx) => {
+      const numberedPoint = await tx.pointOfSale.update({
+        where: { id: pointOfSaleId },
+        data: { nextInventoryAdjustmentNumber: { increment: 1 } },
+        select: { documentPrefix: true, nextInventoryAdjustmentNumber: true, isActive: true },
+      });
+      if (!numberedPoint.isActive) throw new BadRequestException('La bodega está inactiva');
+      const documentSequence = numberedPoint.nextInventoryAdjustmentNumber - 1;
       const changed = await tx.inventoryStock.updateMany({
         where: {
           pointOfSaleId,
@@ -445,30 +517,130 @@ export class InventoryService {
           pointOfSale: { select: { id: true, name: true } },
         },
       });
-      const movement = await tx.inventoryMovement.create({
+      const quantityChange = isAddition ? quantity : quantity.negated();
+      const created = await tx.inventoryAdjustment.create({
+        data: {
+          userId: actor.id,
+          pointOfSaleId,
+          productId: dto.productId,
+          documentSequence,
+          documentNumber: `${numberedPoint.documentPrefix}-AI-${documentSequence}`,
+          operation: dto.operation,
+          quantity,
+          balanceBefore: stock.quantity.minus(quantityChange),
+          balanceAfter: stock.quantity,
+          observation: dto.observation?.trim() || null,
+        },
+      });
+      await tx.inventoryMovement.create({
         data: {
           pointOfSaleId,
           productId: dto.productId,
           userId: actor.id,
+          inventoryAdjustmentId: created.id,
           type: isAddition ? InventoryMovementType.ADJUSTMENT_ADD : InventoryMovementType.ADJUSTMENT_SUBTRACT,
-          quantityChange: isAddition ? quantity : quantity.negated(),
+          quantityChange,
           balanceAfter: stock.quantity,
         },
       });
-      return { stock, movementId: movement.id };
+      return tx.inventoryAdjustment.findUniqueOrThrow({ where: { id: created.id }, include: this.adjustmentRelations() });
     });
 
-    return {
-      id: result.stock.id,
-      productId: result.stock.productId,
-      pointOfSaleId: result.stock.pointOfSaleId,
-      pointOfSale: result.stock.pointOfSale,
-      productDescription: result.stock.product.description,
-      quantity: decimalToNumber(result.stock.quantity),
-      isActive: Boolean(result.stock.isActive),
-      updatedAt: result.stock.updatedAt,
-      movementId: result.movementId,
-    };
+    return this.serializeAdjustment(adjustment);
+  }
+
+  async transferStock(userId: string, dto: CreateInventoryTransferDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const originPointOfSaleId = await this.resolvePointOfSale(actor, dto.originPointOfSaleId);
+    const destinationPointOfSaleId = await this.resolvePointOfSale(actor, dto.destinationPointOfSaleId);
+    if (originPointOfSaleId === destinationPointOfSaleId) {
+      throw new BadRequestException('La bodega de origen y destino deben ser diferentes');
+    }
+    const quantity = new Prisma.Decimal(dto.quantity);
+
+    const transfer = await this.prisma.$transaction(async (tx) => {
+      const numberedOrigin = await tx.pointOfSale.update({
+        where: { id: originPointOfSaleId },
+        data: { nextInventoryTransferNumber: { increment: 1 } },
+        select: { documentPrefix: true, nextInventoryTransferNumber: true, isActive: true },
+      });
+      if (!numberedOrigin.isActive) throw new BadRequestException('La bodega de origen está inactiva');
+      const documentSequence = numberedOrigin.nextInventoryTransferNumber - 1;
+
+      const originChanged = await tx.inventoryStock.updateMany({
+        where: { pointOfSaleId: originPointOfSaleId, productId: dto.productId, isActive: true, quantity: { gte: quantity } },
+        data: { quantity: { decrement: quantity } },
+      });
+      if (originChanged.count !== 1) {
+        const current = await tx.inventoryStock.findUnique({
+          where: { pointOfSaleId_productId: { pointOfSaleId: originPointOfSaleId, productId: dto.productId } },
+          include: { product: { select: { description: true } } },
+        });
+        if (!current || !current.isActive) throw new BadRequestException('El producto no está activo en la bodega de origen');
+        throw new BadRequestException(
+          `Inventario insuficiente para ${current.product.description}. Existencia actual: ${this.formatQuantity(decimalToNumber(current.quantity))}`,
+        );
+      }
+
+      const destinationChanged = await tx.inventoryStock.updateMany({
+        where: { pointOfSaleId: destinationPointOfSaleId, productId: dto.productId, isActive: true },
+        data: { quantity: { increment: quantity } },
+      });
+      if (destinationChanged.count !== 1) {
+        throw new BadRequestException('El producto no está activo en la bodega de destino');
+      }
+
+      const [originStock, destinationStock] = await Promise.all([
+        tx.inventoryStock.findUniqueOrThrow({
+          where: { pointOfSaleId_productId: { pointOfSaleId: originPointOfSaleId, productId: dto.productId } },
+          include: { product: { select: { description: true } } },
+        }),
+        tx.inventoryStock.findUniqueOrThrow({
+          where: { pointOfSaleId_productId: { pointOfSaleId: destinationPointOfSaleId, productId: dto.productId } },
+        }),
+      ]);
+      const created = await tx.inventoryTransfer.create({
+        data: {
+          userId: actor.id,
+          originPointOfSaleId,
+          destinationPointOfSaleId,
+          productId: dto.productId,
+          documentSequence,
+          documentNumber: `${numberedOrigin.documentPrefix}-TI-${documentSequence}`,
+          quantity,
+          originBalanceBefore: originStock.quantity.plus(quantity),
+          originBalanceAfter: originStock.quantity,
+          destinationBalanceBefore: destinationStock.quantity.minus(quantity),
+          destinationBalanceAfter: destinationStock.quantity,
+          observation: dto.observation?.trim() || null,
+        },
+      });
+      await tx.inventoryMovement.createMany({
+        data: [
+          {
+            pointOfSaleId: originPointOfSaleId,
+            productId: dto.productId,
+            userId: actor.id,
+            inventoryTransferId: created.id,
+            type: InventoryMovementType.TRANSFER_OUT,
+            quantityChange: quantity.negated(),
+            balanceAfter: originStock.quantity,
+          },
+          {
+            pointOfSaleId: destinationPointOfSaleId,
+            productId: dto.productId,
+            userId: actor.id,
+            inventoryTransferId: created.id,
+            type: InventoryMovementType.TRANSFER_IN,
+            quantityChange: quantity,
+            balanceAfter: destinationStock.quantity,
+          },
+        ],
+      });
+      return tx.inventoryTransfer.findUniqueOrThrow({ where: { id: created.id }, include: this.transferRelations() });
+    });
+
+    return this.serializeTransfer(transfer);
   }
 
   private async resolvePointOfSale(actor: User, requested?: string) {
@@ -498,7 +670,10 @@ export class InventoryService {
       productId: query.productId,
       OR: [
         { type: InventoryMovementType.ORDER, orderId: { not: null } },
+        { type: InventoryMovementType.ORDER_VOID, orderId: { not: null } },
         { type: InventoryMovementType.ENTRY, inventoryEntryId: { not: null } },
+        { type: { in: [InventoryMovementType.ADJUSTMENT_ADD, InventoryMovementType.ADJUSTMENT_SUBTRACT] }, inventoryAdjustmentId: { not: null } },
+        { type: { in: [InventoryMovementType.TRANSFER_IN, InventoryMovementType.TRANSFER_OUT] }, inventoryTransferId: { not: null } },
       ],
       ...(Object.keys(createdAt).length ? { createdAt } : {}),
     };
@@ -525,6 +700,23 @@ export class InventoryService {
           remittanceNumber: true,
         },
       },
+      inventoryAdjustment: {
+        select: {
+          id: true,
+          documentNumber: true,
+          operation: true,
+          observation: true,
+        },
+      },
+      inventoryTransfer: {
+        select: {
+          id: true,
+          documentNumber: true,
+          observation: true,
+          originPointOfSale: { select: { id: true, name: true } },
+          destinationPointOfSale: { select: { id: true, name: true } },
+        },
+      },
       user: { select: { id: true, name: true, username: true } },
     };
   }
@@ -533,24 +725,42 @@ export class InventoryService {
     const quantityChange = decimalToNumber(row.quantityChange);
     const inventoryAfter = decimalToNumber(row.balanceAfter);
     const isEntry = row.type === InventoryMovementType.ENTRY;
-    const document = isEntry ? row.inventoryEntry : row.order;
+    const isOrder = row.type === InventoryMovementType.ORDER || row.type === InventoryMovementType.ORDER_VOID;
+    const isAdjustment = row.type === InventoryMovementType.ADJUSTMENT_ADD || row.type === InventoryMovementType.ADJUSTMENT_SUBTRACT;
+    const document = isEntry ? row.inventoryEntry : isOrder ? row.order : isAdjustment ? row.inventoryAdjustment : row.inventoryTransfer;
+    const thirdPartyName = isEntry
+      ? document.supplierName
+      : isOrder
+        ? document.clientName
+        : isAdjustment
+          ? 'Ajuste interno'
+          : row.type === InventoryMovementType.TRANSFER_IN
+            ? document.originPointOfSale.name
+            : document.destinationPointOfSale.name;
+    const detail = isEntry
+      ? document.remittanceNumber ? `Remisión ${document.remittanceNumber}` : 'Entrada aplicada'
+      : isOrder
+        ? row.type === InventoryMovementType.ORDER_VOID
+          ? `Reintegro por anulación · ${document.documentNumber}`
+          : `${document.status === 'VOID' ? 'Anulado' : 'Activo'} · ${document.invoicedAt ? 'Facturado' : 'Sin facturar'}`
+        : isAdjustment
+          ? `${document.operation === 'ADD' ? 'Suma' : 'Resta'} · ${document.observation || 'Sin observación'}`
+          : `${document.originPointOfSale.name} → ${document.destinationPointOfSale.name}${document.observation ? ` · ${document.observation}` : ''}`;
     return {
       id: row.id,
       date: row.createdAt,
       movementType: row.type,
       documentId: document.id,
       documentNumber: document.documentNumber,
-      thirdPartyName: isEntry ? document.supplierName : document.clientName,
-      thirdPartyDocument: isEntry ? null : document.clientDocument,
+      thirdPartyName,
+      thirdPartyDocument: isOrder ? document.clientDocument : null,
       quantityInput: quantityChange > 0 ? quantityChange : 0,
       quantityOutput: quantityChange < 0 ? Math.abs(quantityChange) : 0,
       inventoryBefore: inventoryAfter - quantityChange,
       inventoryAfter,
-      detail: isEntry
-        ? document.remittanceNumber ? `Remisión ${document.remittanceNumber}` : 'Entrada aplicada'
-        : `${document.status === 'VOID' ? 'Anulado' : 'Activo'} · ${document.invoicedAt ? 'Facturado' : 'Sin facturar'}`,
-      orderStatus: isEntry ? null : document.status,
-      invoicedAt: isEntry ? null : document.invoicedAt,
+      detail,
+      orderStatus: isOrder ? document.status : null,
+      invoicedAt: isOrder ? document.invoicedAt : null,
       userName: row.user.name,
     };
   }
@@ -559,14 +769,36 @@ export class InventoryService {
     const byType = new Map(stats.map((row) => [row.type, row]));
     const entries = byType.get(InventoryMovementType.ENTRY);
     const orders = byType.get(InventoryMovementType.ORDER);
+    const orderVoids = byType.get(InventoryMovementType.ORDER_VOID);
+    const adjustmentAdd = byType.get(InventoryMovementType.ADJUSTMENT_ADD);
+    const adjustmentSubtract = byType.get(InventoryMovementType.ADJUSTMENT_SUBTRACT);
+    const transferIn = byType.get(InventoryMovementType.TRANSFER_IN);
+    const transferOut = byType.get(InventoryMovementType.TRANSFER_OUT);
+    const count = (row: any) => row?._count?._all || 0;
+    const sum = (row: any) => decimalToNumber(row?._sum?.quantityChange);
     return {
       movements,
-      entries: entries?._count?._all || 0,
-      orders: orders?._count?._all || 0,
-      totalInput: decimalToNumber(entries?._sum?.quantityChange),
-      totalOutput: Math.abs(decimalToNumber(orders?._sum?.quantityChange)),
+      entries: count(entries),
+      orders: count(orders),
+      adjustments: count(adjustmentAdd) + count(adjustmentSubtract),
+      transfers: count(transferIn) + count(transferOut),
+      totalInput: sum(entries) + sum(orderVoids) + sum(adjustmentAdd) + sum(transferIn),
+      totalOutput: Math.abs(sum(orders) + sum(adjustmentSubtract) + sum(transferOut)),
       currentInventory,
     };
+  }
+
+  private productHistoryMovementLabel(type: InventoryMovementType) {
+    const labels: Record<InventoryMovementType, string> = {
+      [InventoryMovementType.ENTRY]: 'Entrada',
+      [InventoryMovementType.ORDER]: 'Pedido',
+      [InventoryMovementType.ORDER_VOID]: 'Anulación',
+      [InventoryMovementType.ADJUSTMENT_ADD]: 'Ajuste +',
+      [InventoryMovementType.ADJUSTMENT_SUBTRACT]: 'Ajuste -',
+      [InventoryMovementType.TRANSFER_IN]: 'Traslado entrada',
+      [InventoryMovementType.TRANSFER_OUT]: 'Traslado salida',
+    };
+    return labels[type];
   }
 
   private async getStockReport(userId: string, query: QueryInventoryDto) {
@@ -619,6 +851,43 @@ export class InventoryService {
 
   private serializeEntry(row: any) {
     return { ...row, items: row.items.map((item: any) => ({ ...item, quantity: decimalToNumber(item.quantity) })) };
+  }
+
+  private adjustmentRelations() {
+    return {
+      user: { select: { id: true, name: true, username: true } },
+      pointOfSale: { select: { id: true, name: true, code: true } },
+      product: { select: { id: true, description: true } },
+    };
+  }
+
+  private serializeAdjustment(row: any) {
+    return {
+      ...row,
+      quantity: decimalToNumber(row.quantity),
+      balanceBefore: decimalToNumber(row.balanceBefore),
+      balanceAfter: decimalToNumber(row.balanceAfter),
+    };
+  }
+
+  private transferRelations() {
+    return {
+      user: { select: { id: true, name: true, username: true } },
+      originPointOfSale: { select: { id: true, name: true, code: true } },
+      destinationPointOfSale: { select: { id: true, name: true, code: true } },
+      product: { select: { id: true, description: true } },
+    };
+  }
+
+  private serializeTransfer(row: any) {
+    return {
+      ...row,
+      quantity: decimalToNumber(row.quantity),
+      originBalanceBefore: decimalToNumber(row.originBalanceBefore),
+      originBalanceAfter: decimalToNumber(row.originBalanceAfter),
+      destinationBalanceBefore: decimalToNumber(row.destinationBalanceBefore),
+      destinationBalanceAfter: decimalToNumber(row.destinationBalanceAfter),
+    };
   }
 
   private endOfDay(value: string) {

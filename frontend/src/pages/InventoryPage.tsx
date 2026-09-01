@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Search, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Search, SlidersHorizontal, Trash2, TriangleAlert, Truck } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
@@ -16,6 +16,16 @@ function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
   if (Array.isArray(message)) return message[0] || fallback;
   return message || fallback;
+}
+
+function movementLabel(type: string) {
+  return ({ ENTRY: 'Entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida' } as Record<string, string>)[type] || type;
+}
+
+function movementTone(type: string): 'income' | 'expense' | 'transfer' | 'neutral' {
+  if (['ENTRY', 'ORDER_VOID', 'ADJUSTMENT_ADD', 'TRANSFER_IN'].includes(type)) return 'income';
+  if (['ADJUSTMENT_SUBTRACT', 'TRANSFER_OUT'].includes(type)) return 'expense';
+  return type === 'ORDER' ? 'neutral' : 'transfer';
 }
 
 export function InventoryPage() {
@@ -39,7 +49,17 @@ export function InventoryPage() {
   const [adjustmentProductId, setAdjustmentProductId] = useState('');
   const [adjustmentOperation, setAdjustmentOperation] = useState<'ADD' | 'SUBTRACT'>('ADD');
   const [adjustmentQuantity, setAdjustmentQuantity] = useState('1');
+  const [adjustmentObservation, setAdjustmentObservation] = useState('');
   const [adjustmentError, setAdjustmentError] = useState('');
+  const [adjustmentPage, setAdjustmentPage] = useState(1);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [transferOriginId, setTransferOriginId] = useState('');
+  const [transferDestinationId, setTransferDestinationId] = useState('');
+  const [transferProductId, setTransferProductId] = useState('');
+  const [transferQuantity, setTransferQuantity] = useState('1');
+  const [transferObservation, setTransferObservation] = useState('');
+  const [transferError, setTransferError] = useState('');
+  const [transferPage, setTransferPage] = useState(1);
   const [historyProductId, setHistoryProductId] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [historyDates, setHistoryDates] = useState({ fromDate: '', toDate: '' });
@@ -71,6 +91,23 @@ export function InventoryPage() {
     queryKey: ['products', 'inventory-adjustment', adjustmentPointOfSaleId],
     queryFn: () => productsApi.list({ pointOfSaleId: adjustmentPointOfSaleId, isActive: true }),
     enabled: isAdmin && adjustmentModalOpen && Boolean(adjustmentPointOfSaleId),
+  });
+  const { data: transferProducts = [], isLoading: transferProductsLoading } = useQuery({
+    queryKey: ['products', 'inventory-transfer', transferOriginId],
+    queryFn: () => productsApi.list({ pointOfSaleId: transferOriginId, isActive: true }),
+    enabled: isAdmin && transferModalOpen && Boolean(transferOriginId),
+  });
+  const adjustmentParams = useMemo(() => ({ page: adjustmentPage, pageSize: 8, ...baseParams }), [adjustmentPage, baseParams]);
+  const transferParams = useMemo(() => ({ page: transferPage, pageSize: 8, ...baseParams }), [transferPage, baseParams]);
+  const { data: adjustments, isLoading: adjustmentsLoading } = useQuery({
+    queryKey: ['inventory', 'adjustments', adjustmentParams],
+    queryFn: () => inventoryApi.adjustments(adjustmentParams),
+    enabled: Boolean(pointOfSaleId),
+  });
+  const { data: transfers, isLoading: transfersLoading } = useQuery({
+    queryKey: ['inventory', 'transfers', transferParams],
+    queryFn: () => inventoryApi.transfers(transferParams),
+    enabled: Boolean(pointOfSaleId),
   });
   const { data: historyProducts = [] } = useQuery({
     queryKey: ['products', 'inventory-history', pointOfSaleId],
@@ -108,14 +145,26 @@ export function InventoryPage() {
 
   const adjust = useMutation({
     mutationFn: inventoryApi.adjustStock,
-    onSuccess: (_, variables) => {
+    onSuccess: (adjustment, variables) => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setPointOfSaleId(variables.pointOfSaleId);
-      toast(`Inventario ${variables.operation === 'ADD' ? 'aumentado' : 'disminuido'} correctamente`);
+      toast(`Ajuste ${adjustment.documentNumber} registrado`);
       setAdjustmentModalOpen(false);
     },
     onError: (err) => setAdjustmentError(getApiError(err, 'No se pudo realizar el ajuste')),
+  });
+
+  const transfer = useMutation({
+    mutationFn: inventoryApi.createTransfer,
+    onSuccess: (created, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setPointOfSaleId(variables.originPointOfSaleId);
+      toast(`Traslado ${created.documentNumber} registrado`);
+      setTransferModalOpen(false);
+    },
+    onError: (err) => setTransferError(getApiError(err, 'No se pudo realizar el traslado')),
   });
 
   const openCreate = () => {
@@ -133,8 +182,20 @@ export function InventoryPage() {
     setAdjustmentProductId('');
     setAdjustmentOperation('ADD');
     setAdjustmentQuantity('1');
+    setAdjustmentObservation('');
     setAdjustmentError('');
     setAdjustmentModalOpen(true);
+  };
+
+  const openTransfer = () => {
+    const origin = pointOfSaleId || points.find((point) => point.isActive)?.id || '';
+    setTransferOriginId(origin);
+    setTransferDestinationId(points.find((point) => point.isActive && point.id !== origin)?.id || '');
+    setTransferProductId('');
+    setTransferQuantity('1');
+    setTransferObservation('');
+    setTransferError('');
+    setTransferModalOpen(true);
   };
 
   const setFilter = (key: keyof typeof filters, value: string) => {
@@ -190,6 +251,24 @@ export function InventoryPage() {
       productId: adjustmentProductId,
       operation: adjustmentOperation,
       quantity,
+      observation: adjustmentObservation,
+    });
+  }
+
+  async function submitTransfer(event: FormEvent) {
+    event.preventDefault();
+    setTransferError('');
+    if (!transferOriginId || !transferDestinationId) return setTransferError('Selecciona las bodegas de origen y destino');
+    if (transferOriginId === transferDestinationId) return setTransferError('Las bodegas de origen y destino deben ser diferentes');
+    if (!transferProductId) return setTransferError('Selecciona un producto');
+    const quantity = Number(transferQuantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) return setTransferError('Ingresa una cantidad válida');
+    await transfer.mutateAsync({
+      originPointOfSaleId: transferOriginId,
+      destinationPointOfSaleId: transferDestinationId,
+      productId: transferProductId,
+      quantity,
+      observation: transferObservation,
     });
   }
 
@@ -199,6 +278,12 @@ export function InventoryPage() {
     ? adjustmentProduct.quantity + (adjustmentOperation === 'ADD' ? adjustmentAmount : -adjustmentAmount)
     : null;
   const adjustmentProductOptions = adjustmentProducts.map((product) => ({
+    value: product.id,
+    label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
+  }));
+  const transferProduct = transferProducts.find((product) => product.id === transferProductId);
+  const transferAmount = Number(transferQuantity) || 0;
+  const transferProductOptions = transferProducts.map((product) => ({
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
@@ -225,17 +310,18 @@ export function InventoryPage() {
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-2xl font-extrabold tracking-tight">Inventario</h1><p className="text-sm text-mute">Existencias y entradas de mercancía por punto de venta.</p></div>
+        <div><h1 className="text-2xl font-extrabold tracking-tight">Inventario</h1><p className="text-sm text-mute">Existencias, entradas, ajustes y traslados por punto de venta.</p></div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => exportStocks('excel')} disabled={!pointOfSaleId || Boolean(exporting)}><Download className="h-4 w-4" /> {exporting === 'excel' ? 'Generando...' : 'Excel'}</Button>
           <Button variant="secondary" onClick={() => exportStocks('pdf')} disabled={!pointOfSaleId || Boolean(exporting)}><FileText className="h-4 w-4" /> {exporting === 'pdf' ? 'Generando...' : 'PDF'}</Button>
-          {isAdmin && <Button variant="secondary" onClick={openAdjustment}><ArrowLeftRight className="h-4 w-4" /> Ajustar inventario</Button>}
+          {isAdmin && <Button variant="secondary" onClick={openTransfer}><ArrowLeftRight className="h-4 w-4" /> Nuevo traslado</Button>}
+          {isAdmin && <Button variant="secondary" onClick={openAdjustment}><SlidersHorizontal className="h-4 w-4" /> Ajustar inventario</Button>}
           {isAdmin && <Button onClick={openCreate} disabled={!pointOfSaleId}><PackagePlus className="h-4 w-4" /> Nueva entrada</Button>}
         </div>
       </div>
 
       <Card className="p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {isAdmin ? <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => { setPointOfSaleId(event.target.value); setPage(1); setHistoryProductId(''); setHistoryPage(1); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field> : <Field label="Punto de venta"><Input disabled value={pointName || 'Sin asignar'} /></Field>}
+        {isAdmin ? <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => { setPointOfSaleId(event.target.value); setPage(1); setAdjustmentPage(1); setTransferPage(1); setHistoryProductId(''); setHistoryPage(1); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field> : <Field label="Punto de venta"><Input disabled value={pointName || 'Sin asignar'} /></Field>}
         <Field label="Desde"><Input type="date" value={filters.fromDate} onChange={(event) => setFilter('fromDate', event.target.value)} /></Field>
         <Field label="Hasta"><Input type="date" value={filters.toDate} onChange={(event) => setFilter('toDate', event.target.value)} /></Field>
         <Field label="Buscar entradas"><div className="relative"><Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Proveedor, remisión o producto" className="pl-9" /><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" /></div></Field>
@@ -251,12 +337,16 @@ export function InventoryPage() {
         <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><Boxes className="h-4 w-4 text-brand" /><h2 className="font-bold">Existencias actuales - {pointName}</h2></div><div className="max-h-[420px] overflow-auto"><table className="w-full min-w-[620px] text-sm"><thead className="sticky top-0 bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Existencia</th><th className="px-4 py-3">Estado</th></tr></thead><tbody className="divide-y divide-line">{stocks.map((stock) => <tr key={stock.id}><td className="px-4 py-3 font-semibold">{stock.productDescription}</td><td className={`px-4 py-3 text-right font-bold ${stock.quantity <= 0 ? 'text-expense' : 'text-brand-dark'}`}>{stock.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{stock.isActive ? 'Activo' : 'Inactivo'}</td></tr>)}</tbody></table>{!stocks.length && <p className="p-6 text-center text-sm text-mute">No hay productos asignados.</p>}</div></Card>
       </>}
 
+      {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><SlidersHorizontal className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Ajustes de inventario</h2><p className="text-xs text-mute">Documentos consecutivos aplicados en {pointName}.</p></div></div>{adjustmentsLoading || !adjustments ? <div className="p-6"><Spinner /></div> : adjustments.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Producto</th><th className="px-4 py-3">Operación</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3 text-right">Antes</th><th className="px-4 py-3 text-right">Después</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{adjustments.data.map((adjustment) => <tr key={adjustment.id}><td className="px-4 py-3 font-mono font-semibold">{adjustment.documentNumber}</td><td className="px-4 py-3">{dateInput(adjustment.adjustmentDate)}</td><td className="px-4 py-3 font-semibold">{adjustment.product?.description || '-'}</td><td className="px-4 py-3"><Badge tone={adjustment.operation === 'ADD' ? 'income' : 'expense'}>{adjustment.operation === 'ADD' ? 'Suma' : 'Resta'}</Badge></td><td className={`px-4 py-3 text-right font-bold ${adjustment.operation === 'ADD' ? 'text-brand-dark' : 'text-expense'}`}>{adjustment.operation === 'ADD' ? '+' : '-'}{adjustment.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right">{adjustment.balanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right font-semibold">{adjustment.balanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="max-w-[260px] px-4 py-3">{adjustment.observation || '-'}</td><td className="px-4 py-3">{adjustment.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={adjustments.page} pageSize={adjustments.pageSize} total={adjustments.total} onChange={setAdjustmentPage} /></div></> : <EmptyState title="Sin ajustes registrados" />}</Card>}
+
+      {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><Truck className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Traslados de inventario</h2><p className="text-xs text-mute">Movimientos donde {pointName} participa como origen o destino.</p></div></div>{transfersLoading || !transfers ? <div className="p-6"><Spinner /></div> : transfers.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Origen → destino</th><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3">Saldo origen</th><th className="px-4 py-3">Saldo destino</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{transfers.data.map((movement) => <tr key={movement.id}><td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3">{dateInput(movement.transferDate)}</td><td className="px-4 py-3 font-semibold">{movement.originPointOfSale?.name || '-'} <span className="text-mute">→</span> {movement.destinationPointOfSale?.name || '-'}</td><td className="px-4 py-3 font-semibold">{movement.product?.description || '-'}</td><td className="px-4 py-3 text-right font-bold">{movement.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{movement.originBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.originBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td><td className="px-4 py-3">{movement.destinationBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.destinationBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td><td className="max-w-[260px] px-4 py-3">{movement.observation || '-'}</td><td className="px-4 py-3">{movement.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={transfers.page} pageSize={transfers.pageSize} total={transfers.total} onChange={setTransferPage} /></div></> : <EmptyState title="Sin traslados registrados" />}</Card>}
+
       {pointOfSaleId && <Card className="overflow-hidden p-0">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3"><div className="flex items-center gap-2"><History className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Histórico por producto</h2><p className="text-xs text-mute">Entradas de mercancía y salidas por pedidos con inventario antes y después.</p></div></div><Button variant="secondary" disabled={!historyProductId || historyExporting} onClick={exportProductHistory}><FileSpreadsheet className="h-4 w-4" /> {historyExporting ? 'Generando...' : 'Excel'}</Button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3"><div className="flex items-center gap-2"><History className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Histórico por producto</h2><p className="text-xs text-mute">Entradas, pedidos, ajustes y traslados con inventario antes y después.</p></div></div><Button variant="secondary" disabled={!historyProductId || historyExporting} onClick={exportProductHistory}><FileSpreadsheet className="h-4 w-4" /> {historyExporting ? 'Generando...' : 'Excel'}</Button></div>
         <div className="grid gap-3 border-b border-line p-4 md:grid-cols-3"><Field label="Producto"><SearchableSelect value={historyProductId} onChange={(value) => { setHistoryProductId(value); setHistoryPage(1); }} options={historyProductOptions} placeholder="Buscar producto" emptyMessage="No hay productos en esta bodega" /></Field><Field label="Desde"><Input type="date" value={historyDates.fromDate} onChange={(event) => { setHistoryDates((current) => ({ ...current, fromDate: event.target.value })); setHistoryPage(1); }} /></Field><Field label="Hasta"><Input type="date" value={historyDates.toDate} onChange={(event) => { setHistoryDates((current) => ({ ...current, toDate: event.target.value })); setHistoryPage(1); }} /></Field></div>
         {!historyProductId ? <EmptyState title="Selecciona un producto para consultar sus movimientos" /> : historyLoading || !productHistory ? <div className="p-6"><Spinner /></div> : <>
-          <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 xl:grid-cols-4"><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Movimientos</p><p className="mt-1 text-xl font-bold text-brand-dark">{productHistory.summary.movements}</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Entradas</p><p className="mt-1 text-xl font-bold text-brand-dark">+{productHistory.summary.totalInput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p><p className="text-xs text-mute">{productHistory.summary.entries} registros</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Salidas por pedidos</p><p className="mt-1 text-xl font-bold text-expense">-{productHistory.summary.totalOutput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p><p className="text-xs text-mute">{productHistory.summary.orders} pedidos</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Inventario actual</p><p className="mt-1 text-xl font-bold text-brand-dark">{productHistory.summary.currentInventory.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p></div></div>
-          {productHistory.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Cliente / proveedor</th><th className="px-4 py-3 text-right">Inventario antes</th><th className="px-4 py-3 text-right">Entrada</th><th className="px-4 py-3 text-right">Salida</th><th className="px-4 py-3 text-right">Inventario después</th><th className="px-4 py-3">Detalle</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{productHistory.data.map((movement) => <tr key={movement.id}><td className="px-4 py-3">{dateInput(movement.date)}</td><td className="px-4 py-3"><Badge tone={movement.movementType === 'ENTRY' ? 'income' : 'neutral'}>{movement.movementType === 'ENTRY' ? 'Entrada' : 'Pedido'}</Badge></td><td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3"><p className="font-semibold">{movement.thirdPartyName}</p>{movement.thirdPartyDocument && <p className="text-xs text-mute">{movement.thirdPartyDocument}</p>}</td><td className="px-4 py-3 text-right font-semibold">{movement.inventoryBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right font-bold text-brand-dark">{movement.quantityInput ? `+${movement.quantityInput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}` : '-'}</td><td className="px-4 py-3 text-right font-bold text-expense">{movement.quantityOutput ? `-${movement.quantityOutput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}` : '-'}</td><td className="px-4 py-3 text-right font-semibold text-brand-dark">{movement.inventoryAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{movement.detail}</td><td className="px-4 py-3">{movement.userName}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={productHistory.page} pageSize={productHistory.pageSize} total={productHistory.total} onChange={setHistoryPage} /></div></> : <EmptyState title="Este producto no tiene entradas ni salidas por pedidos en el periodo" />}
+          <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 xl:grid-cols-4"><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Movimientos</p><p className="mt-1 text-xl font-bold text-brand-dark">{productHistory.summary.movements}</p><p className="text-xs text-mute">{productHistory.summary.entries} entradas · {productHistory.summary.orders} pedidos · {productHistory.summary.adjustments} ajustes · {productHistory.summary.transfers} traslados</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Entradas al inventario</p><p className="mt-1 text-xl font-bold text-brand-dark">+{productHistory.summary.totalInput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Salidas del inventario</p><p className="mt-1 text-xl font-bold text-expense">-{productHistory.summary.totalOutput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Inventario actual</p><p className="mt-1 text-xl font-bold text-brand-dark">{productHistory.summary.currentInventory.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p></div></div>
+          {productHistory.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Tercero / bodega</th><th className="px-4 py-3 text-right">Inventario antes</th><th className="px-4 py-3 text-right">Entrada</th><th className="px-4 py-3 text-right">Salida</th><th className="px-4 py-3 text-right">Inventario después</th><th className="px-4 py-3">Detalle</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{productHistory.data.map((movement) => <tr key={movement.id}><td className="px-4 py-3">{dateInput(movement.date)}</td><td className="px-4 py-3"><Badge tone={movementTone(movement.movementType)}>{movementLabel(movement.movementType)}</Badge></td><td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3"><p className="font-semibold">{movement.thirdPartyName}</p>{movement.thirdPartyDocument && <p className="text-xs text-mute">{movement.thirdPartyDocument}</p>}</td><td className="px-4 py-3 text-right font-semibold">{movement.inventoryBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right font-bold text-brand-dark">{movement.quantityInput ? `+${movement.quantityInput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}` : '-'}</td><td className="px-4 py-3 text-right font-bold text-expense">{movement.quantityOutput ? `-${movement.quantityOutput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}` : '-'}</td><td className="px-4 py-3 text-right font-semibold text-brand-dark">{movement.inventoryAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{movement.detail}</td><td className="px-4 py-3">{movement.userName}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={productHistory.page} pageSize={productHistory.pageSize} total={productHistory.total} onChange={setHistoryPage} /></div></> : <EmptyState title="Este producto no tiene movimientos en el periodo" />}
         </>}
       </Card>}
 
@@ -290,9 +380,28 @@ export function InventoryPage() {
             <Field label="Tipo de ajuste"><Select value={adjustmentOperation} onChange={(event) => setAdjustmentOperation(event.target.value as 'ADD' | 'SUBTRACT')}><option value="ADD">Sumar al inventario</option><option value="SUBTRACT">Restar del inventario</option></Select></Field>
             <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={adjustmentQuantity} onChange={(event) => setAdjustmentQuantity(event.target.value)} /></Field>
           </div>
+          <Field label="Observación" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={1000} value={adjustmentObservation} onChange={(event) => setAdjustmentObservation(event.target.value)} placeholder="Motivo o soporte del ajuste" /></Field>
           {adjustmentProduct && resultingQuantity !== null && <div className={`rounded-lg px-3 py-3 text-sm ${resultingQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}><p>Existencia actual: <strong>{adjustmentProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del ajuste: <strong>{resultingQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{resultingQuantity < 0 && <p className="mt-1 font-semibold">La existencia no puede quedar negativa.</p>}</div>}
           {adjustmentError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{adjustmentError}</p>}
           <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setAdjustmentModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={adjust.isPending || !adjustmentProductId || resultingQuantity === null || resultingQuantity < 0}>{adjust.isPending ? 'Guardando...' : 'Aplicar ajuste'}</Button></div>
+        </form>
+      </Modal>
+
+      <Modal open={isAdmin && transferModalOpen} onClose={() => setTransferModalOpen(false)} title="Nuevo traslado de inventario" size="large">
+        <form onSubmit={submitTransfer} className="space-y-4">
+          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">El traslado restará el producto de la bodega de origen y lo sumará en la bodega de destino en una sola operación.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Bodega de origen"><Select value={transferOriginId} onChange={(event) => { const origin = event.target.value; setTransferOriginId(origin); setTransferProductId(''); if (transferDestinationId === origin) setTransferDestinationId(''); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
+            <Field label="Bodega de destino"><Select value={transferDestinationId} onChange={(event) => { setTransferDestinationId(event.target.value); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive && point.id !== transferOriginId).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
+            <Field label="Producto"><SearchableSelect value={transferProductId} onChange={setTransferProductId} options={transferProductOptions} disabled={!transferOriginId || transferProductsLoading} placeholder={transferProductsLoading ? 'Cargando productos...' : 'Buscar producto en origen'} emptyMessage="No hay productos activos en el origen" /></Field>
+            <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={transferQuantity} onChange={(event) => setTransferQuantity(event.target.value)} /></Field>
+          </div>
+          {transferProduct && <div className={`rounded-lg px-3 py-3 text-sm ${transferAmount > transferProduct.quantity ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}><p>Existencia en origen: <strong>{transferProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del traslado: <strong>{(transferProduct.quantity - transferAmount).toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{transferAmount > transferProduct.quantity && <p className="mt-1 font-semibold">La cantidad supera la existencia disponible.</p>}</div>}
+          <Field label="Observación" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={1000} value={transferObservation} onChange={(event) => setTransferObservation(event.target.value)} placeholder="Motivo, transportador o referencia del traslado" /></Field>
+          {transferError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{transferError}</p>}
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setTransferModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={transfer.isPending || !transferOriginId || !transferDestinationId || !transferProductId || transferAmount <= 0 || Boolean(transferProduct && transferAmount > transferProduct.quantity)}>{transfer.isPending ? 'Trasladando...' : 'Registrar traslado'}</Button></div>
         </form>
       </Modal>
     </section>

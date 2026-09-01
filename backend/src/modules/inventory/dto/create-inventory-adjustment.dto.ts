@@ -1,10 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsString, Min } from 'class-validator';
+import { InventoryAdjustmentOperation } from '@prisma/client';
+import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
-export enum InventoryAdjustmentOperation {
-  ADD = 'ADD',
-  SUBTRACT = 'SUBTRACT',
-}
+export { InventoryAdjustmentOperation };
 
 export class CreateInventoryAdjustmentDto {
   @IsString()
@@ -20,4 +18,9 @@ export class CreateInventoryAdjustmentDto {
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.001)
   quantity: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  observation?: string;
 }

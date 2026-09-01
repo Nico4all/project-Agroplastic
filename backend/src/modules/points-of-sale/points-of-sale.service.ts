@@ -15,6 +15,8 @@ const pointOfSaleSelect = {
   nextExpenseNumber: true,
   nextOrderNumber: true,
   nextInventoryEntryNumber: true,
+  nextInventoryAdjustmentNumber: true,
+  nextInventoryTransferNumber: true,
   nextPortfolioCollectionNumber: true,
   city: true,
   address: true,
@@ -122,6 +124,14 @@ export class PointsOfSaleService {
               current.nextInventoryEntryNumber,
               historicalCounters.nextInventoryEntryNumber,
             ),
+            nextInventoryAdjustmentNumber: Math.max(
+              current.nextInventoryAdjustmentNumber,
+              historicalCounters.nextInventoryAdjustmentNumber,
+            ),
+            nextInventoryTransferNumber: Math.max(
+              current.nextInventoryTransferNumber,
+              historicalCounters.nextInventoryTransferNumber,
+            ),
             nextPortfolioCollectionNumber: Math.max(
               current.nextPortfolioCollectionNumber,
               historicalCounters.nextPortfolioCollectionNumber,
@@ -165,12 +175,20 @@ export class PointsOfSaleService {
 
   private async nextCountersForPrefix(documentPrefix: string) {
     const documentNumber = { startsWith: `${documentPrefix}-` };
-    const [income, expense, order, inventoryEntry, portfolioCollection] = await Promise.all([
+    const [income, expense, order, inventoryEntry, inventoryAdjustment, inventoryTransfer, portfolioCollection] = await Promise.all([
       this.prisma.income.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.expense.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.order.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.inventoryEntry.aggregate({
         where: { documentNumber: { startsWith: `${documentPrefix}-EM-` } },
+        _max: { documentSequence: true },
+      }),
+      this.prisma.inventoryAdjustment.aggregate({
+        where: { documentNumber: { startsWith: `${documentPrefix}-AI-` } },
+        _max: { documentSequence: true },
+      }),
+      this.prisma.inventoryTransfer.aggregate({
+        where: { documentNumber: { startsWith: `${documentPrefix}-TI-` } },
         _max: { documentSequence: true },
       }),
       this.prisma.portfolioCollection.aggregate({
@@ -183,6 +201,8 @@ export class PointsOfSaleService {
       nextExpenseNumber: (expense._max.documentSequence ?? 0) + 1,
       nextOrderNumber: (order._max.documentSequence ?? 0) + 1,
       nextInventoryEntryNumber: (inventoryEntry._max.documentSequence ?? 0) + 1,
+      nextInventoryAdjustmentNumber: (inventoryAdjustment._max.documentSequence ?? 0) + 1,
+      nextInventoryTransferNumber: (inventoryTransfer._max.documentSequence ?? 0) + 1,
       nextPortfolioCollectionNumber: (portfolioCollection._max.documentSequence ?? 0) + 1,
     };
   }

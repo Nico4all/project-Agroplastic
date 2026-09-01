@@ -21,6 +21,8 @@ import {
   PriceListCategory,
   PriceListProduct,
   InventoryEntry,
+  InventoryAdjustment,
+  InventoryTransfer,
   InventoryStock,
   ProductHistoryResult,
 } from '../types';
@@ -131,7 +133,19 @@ export const inventoryApi = {
     productId: string;
     operation: 'ADD' | 'SUBTRACT';
     quantity: number;
-  }) => (await api.post<InventoryStock>('/inventory/adjustments', payload)).data,
+    observation?: string;
+  }) => (await api.post<InventoryAdjustment>('/inventory/adjustments', payload)).data,
+  adjustments: async (params?: Record<string, unknown>) =>
+    (await api.get<PaginatedResult<InventoryAdjustment>>('/inventory/adjustments', { params })).data,
+  createTransfer: async (payload: {
+    originPointOfSaleId: string;
+    destinationPointOfSaleId: string;
+    productId: string;
+    quantity: number;
+    observation?: string;
+  }) => (await api.post<InventoryTransfer>('/inventory/transfers', payload)).data,
+  transfers: async (params?: Record<string, unknown>) =>
+    (await api.get<PaginatedResult<InventoryTransfer>>('/inventory/transfers', { params })).data,
 };
 
 export const suppliersApi = {

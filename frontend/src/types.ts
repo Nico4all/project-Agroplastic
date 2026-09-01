@@ -18,6 +18,8 @@ export type PointOfSale = {
   nextExpenseNumber?: number;
   nextOrderNumber?: number;
   nextInventoryEntryNumber?: number;
+  nextInventoryAdjustmentNumber?: number;
+  nextInventoryTransferNumber?: number;
   nextPortfolioCollectionNumber?: number;
   city?: string | null;
   address?: string | null;
@@ -208,10 +210,51 @@ export type InventoryEntry = {
   items: InventoryEntryItem[];
 };
 
+export type InventoryAdjustment = {
+  id: string;
+  userId: string;
+  pointOfSaleId: string;
+  productId: string;
+  documentSequence: number;
+  documentNumber: string;
+  operation: 'ADD' | 'SUBTRACT';
+  quantity: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  observation?: string | null;
+  adjustmentDate: string;
+  createdAt: string;
+  user?: Pick<User, 'id' | 'name' | 'username'>;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
+  product?: { id: string; description: string };
+};
+
+export type InventoryTransfer = {
+  id: string;
+  userId: string;
+  originPointOfSaleId: string;
+  destinationPointOfSaleId: string;
+  productId: string;
+  documentSequence: number;
+  documentNumber: string;
+  quantity: number;
+  originBalanceBefore: number;
+  originBalanceAfter: number;
+  destinationBalanceBefore: number;
+  destinationBalanceAfter: number;
+  observation?: string | null;
+  transferDate: string;
+  createdAt: string;
+  user?: Pick<User, 'id' | 'name' | 'username'>;
+  originPointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
+  destinationPointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
+  product?: { id: string; description: string };
+};
+
 export type ProductHistoryRow = {
   id: string;
   date: string;
-  movementType: 'ENTRY' | 'ORDER';
+  movementType: 'ENTRY' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
   documentId: string;
   documentNumber: string;
   thirdPartyName: string;
@@ -231,6 +274,8 @@ export type ProductHistoryResult = PaginatedResult<ProductHistoryRow> & {
     movements: number;
     entries: number;
     orders: number;
+    adjustments: number;
+    transfers: number;
     totalInput: number;
     totalOutput: number;
     currentInventory: number;

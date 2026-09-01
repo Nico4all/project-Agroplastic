@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
 import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
+import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 import { InventoryService } from './inventory.service';
@@ -48,6 +49,16 @@ export class InventoryController {
     return this.inventory.findProductHistory(user.userId, query);
   }
 
+  @Get('adjustments')
+  findAdjustments(@CurrentUser() user: { userId: string }, @Query() query: QueryInventoryDto) {
+    return this.inventory.findAdjustments(user.userId, query);
+  }
+
+  @Get('transfers')
+  findTransfers(@CurrentUser() user: { userId: string }, @Query() query: QueryInventoryDto) {
+    return this.inventory.findTransfers(user.userId, query);
+  }
+
   @Get('history/export/excel')
   async exportProductHistoryExcel(
     @CurrentUser() user: { userId: string },
@@ -66,6 +77,11 @@ export class InventoryController {
   @Post('adjustments')
   adjustStock(@CurrentUser() user: { userId: string }, @Body() dto: CreateInventoryAdjustmentDto) {
     return this.inventory.adjustStock(user.userId, dto);
+  }
+
+  @Post('transfers')
+  transferStock(@CurrentUser() user: { userId: string }, @Body() dto: CreateInventoryTransferDto) {
+    return this.inventory.transferStock(user.userId, dto);
   }
 
   private sendFile(res: Response, file: { buffer: Buffer; filename: string }, contentType: string) {
