@@ -34,15 +34,19 @@ function Brand() {
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
-  const mainNav = useMemo(() => [
+  const dashboardNav = useMemo(() => [
     { to: '/', label: 'Panel', icon: BarChart3, end: true },
-    { to: '/incomes', label: 'Ingresos', icon: HandCoins },
+  ], []);
+  const expensesNav = useMemo(() => [
     { to: '/expenses', label: 'Egresos', icon: ReceiptText },
+    { to: '/categories', label: 'Categorias', icon: FolderTree },
+  ], []);
+  const ordersNav = useMemo(() => [
+    { to: '/incomes', label: 'Ingresos', icon: HandCoins },
     { to: '/orders', label: 'Pedidos', icon: ShoppingCart },
     { to: '/inventory', label: 'Inventario', icon: PackagePlus },
-    { to: '/products', label: 'Productos pedidos', icon: Package },
     { to: '/clients', label: 'Clientes', icon: UserSquare2 },
-    { to: '/categories', label: 'Categorias', icon: FolderTree },
+    { to: '/products', label: 'Productos pedidos', icon: Package },
   ], []);
   const catalogNav = useMemo(() => [
     { to: '/price-list', label: 'Productos', icon: Tags },
@@ -53,7 +57,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
       { to: '/users', label: 'Usuarios', icon: Users },
     ] : [], [user?.role]);
 
-  const renderLinks = (items: typeof mainNav) => items.map(({ to, label, icon: Icon, end }) => (
+  const renderLinks = (items: Array<{ to: string; label: string; icon: typeof BarChart3; end?: boolean }>) => items.map(({ to, label, icon: Icon, end }) => (
     <NavLink
       key={to}
       to={to}
@@ -72,7 +76,11 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav className="mt-8 flex flex-1 flex-col gap-1">
-      {renderLinks(mainNav)}
+      {renderLinks(dashboardNav)}
+      <p className="mt-5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">Egresos</p>
+      {renderLinks(expensesNav)}
+      <p className="mt-5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">Pedidos e inventario</p>
+      {renderLinks(ordersNav)}
       <p className="mt-5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">Lista de precios</p>
       {renderLinks(catalogNav)}
       {adminNav.length > 0 && <p className="mt-5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/30">Administracion</p>}
