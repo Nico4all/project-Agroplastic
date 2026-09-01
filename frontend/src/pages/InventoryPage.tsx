@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, PackagePlus, Search, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Download, FileText, PackagePlus, Search, Trash2, TriangleAlert } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { dateInput } from '../utils/format';
+import { downloadBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
 
 type EntryLine = { productId: string; quantity: string };
@@ -32,6 +33,13 @@ export function InventoryPage() {
   const [observations, setObservations] = useState('');
   const [lines, setLines] = useState<EntryLine[]>([emptyLine()]);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null);
+  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
+  const [adjustmentPointOfSaleId, setAdjustmentPointOfSaleId] = useState('');
+  const [adjustmentProductId, setAdjustmentProductId] = useState('');
+  const [adjustmentOperation, setAdjustmentOperation] = useState<'ADD' | 'SUBTRACT'>('ADD');
+  const [adjustmentQuantity, setAdjustmentQuantity] = useState('1');
+  const [adjustmentError, setAdjustmentError] = useState('');
   const { data: points = [] } = useQuery({ queryKey: ['points-of-sale'], queryFn: pointsOfSaleApi.list, enabled: isAdmin });
 
   useEffect(() => {
@@ -55,6 +63,11 @@ export function InventoryPage() {
     queryFn: () => productsApi.list({ ...baseParams, isActive: true }),
     enabled: Boolean(pointOfSaleId),
   });
+  const { data: adjustmentProducts = [], isLoading: adjustmentProductsLoading } = useQuery({
+    queryKey: ['products', 'inventory-adjustment', adjustmentPointOfSaleId],
+    queryFn: () => productsApi.list({ pointOfSaleId: adjustmentPointOfSaleId, isActive: true }),
+    enabled: isAdmin && adjustmentModalOpen && Boolean(adjustmentPointOfSaleId),
+  });
 
   const pointName = isAdmin ? points.find((point) => point.id === pointOfSaleId)?.name : user?.pointOfSale?.name;
   const productOptions = products.map((product) => ({
@@ -75,6 +88,18 @@ export function InventoryPage() {
     onError: (err) => setError(getApiError(err, 'No se pudo registrar la entrada')),
   });
 
+  const adjust = useMutation({
+    mutationFn: inventoryApi.adjustStock,
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setPointOfSaleId(variables.pointOfSaleId);
+      toast(`Inventario ${variables.operation === 'ADD' ? 'aumentado' : 'disminuido'} correctamente`);
+      setAdjustmentModalOpen(false);
+    },
+    onError: (err) => setAdjustmentError(getApiError(err, 'No se pudo realizar el ajuste')),
+  });
+
   const openCreate = () => {
     setSupplierName('');
     setRemittanceNumber('');
@@ -83,6 +108,15 @@ export function InventoryPage() {
     setLines([emptyLine()]);
     setError('');
     setModalOpen(true);
+  };
+
+  const openAdjustment = () => {
+    setAdjustmentPointOfSaleId(pointOfSaleId || points.find((point) => point.isActive)?.id || '');
+    setAdjustmentProductId('');
+    setAdjustmentOperation('ADD');
+    setAdjustmentQuantity('1');
+    setAdjustmentError('');
+    setAdjustmentModalOpen(true);
   };
 
   const setFilter = (key: keyof typeof filters, value: string) => {
@@ -110,11 +144,57 @@ export function InventoryPage() {
     });
   }
 
+  async function exportStocks(kind: 'excel' | 'pdf') {
+    if (!pointOfSaleId) return;
+    setExporting(kind);
+    try {
+      const blob = kind === 'excel'
+        ? await inventoryApi.exportStocksExcel(baseParams)
+        : await inventoryApi.exportStocksPdf(baseParams);
+      const safePointName = (pointName || 'bodega').replace(/[\\/:*?"<>|]/g, '-');
+      downloadBlob(blob, `Existencias - ${safePointName}.${kind === 'excel' ? 'xlsx' : 'pdf'}`);
+    } catch {
+      toast('No se pudo generar el reporte de existencias', 'error');
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function submitAdjustment(event: FormEvent) {
+    event.preventDefault();
+    setAdjustmentError('');
+    if (!adjustmentPointOfSaleId) return setAdjustmentError('Selecciona una bodega');
+    if (!adjustmentProductId) return setAdjustmentError('Selecciona un producto');
+    const quantity = Number(adjustmentQuantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) return setAdjustmentError('Ingresa una cantidad válida');
+    await adjust.mutateAsync({
+      pointOfSaleId: adjustmentPointOfSaleId,
+      productId: adjustmentProductId,
+      operation: adjustmentOperation,
+      quantity,
+    });
+  }
+
+  const adjustmentProduct = adjustmentProducts.find((product) => product.id === adjustmentProductId);
+  const adjustmentAmount = Number(adjustmentQuantity) || 0;
+  const resultingQuantity = adjustmentProduct
+    ? adjustmentProduct.quantity + (adjustmentOperation === 'ADD' ? adjustmentAmount : -adjustmentAmount)
+    : null;
+  const adjustmentProductOptions = adjustmentProducts.map((product) => ({
+    value: product.id,
+    label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
+  }));
+
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-extrabold tracking-tight">Inventario</h1><p className="text-sm text-mute">Existencias y entradas de mercancía por punto de venta.</p></div>
-        {isAdmin && <Button onClick={openCreate} disabled={!pointOfSaleId}><PackagePlus className="h-4 w-4" /> Nueva entrada</Button>}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => exportStocks('excel')} disabled={!pointOfSaleId || Boolean(exporting)}><Download className="h-4 w-4" /> {exporting === 'excel' ? 'Generando...' : 'Excel'}</Button>
+          <Button variant="secondary" onClick={() => exportStocks('pdf')} disabled={!pointOfSaleId || Boolean(exporting)}><FileText className="h-4 w-4" /> {exporting === 'pdf' ? 'Generando...' : 'PDF'}</Button>
+          {isAdmin && <Button variant="secondary" onClick={openAdjustment}><ArrowLeftRight className="h-4 w-4" /> Ajustar inventario</Button>}
+          {isAdmin && <Button onClick={openCreate} disabled={!pointOfSaleId}><PackagePlus className="h-4 w-4" /> Nueva entrada</Button>}
+        </div>
       </div>
 
       <Card className="p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -145,6 +225,28 @@ export function InventoryPage() {
           {!products.length && <p className="flex items-center gap-2 rounded-lg bg-expense-soft px-3 py-2 text-sm text-expense"><TriangleAlert className="h-4 w-4" /> No hay productos activos para registrar una entrada.</p>}
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
           <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={create.isPending || !products.length}>{create.isPending ? 'Guardando...' : 'Registrar entrada'}</Button></div>
+        </form>
+      </Modal>
+
+      <Modal open={isAdmin && adjustmentModalOpen} onClose={() => setAdjustmentModalOpen(false)} title="Ajustar inventario">
+        <form onSubmit={submitAdjustment} className="space-y-4">
+          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">El ajuste quedará registrado con tu usuario y el saldo final del producto.</p>
+          <Field label="Bodega / punto de venta">
+            <Select value={adjustmentPointOfSaleId} onChange={(event) => { setAdjustmentPointOfSaleId(event.target.value); setAdjustmentProductId(''); setAdjustmentError(''); }}>
+              <option value="">Selecciona</option>
+              {points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Producto">
+            <SearchableSelect value={adjustmentProductId} onChange={setAdjustmentProductId} options={adjustmentProductOptions} disabled={!adjustmentPointOfSaleId || adjustmentProductsLoading} placeholder={adjustmentProductsLoading ? 'Cargando productos...' : 'Buscar producto'} emptyMessage="No hay productos activos" />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Tipo de ajuste"><Select value={adjustmentOperation} onChange={(event) => setAdjustmentOperation(event.target.value as 'ADD' | 'SUBTRACT')}><option value="ADD">Sumar al inventario</option><option value="SUBTRACT">Restar del inventario</option></Select></Field>
+            <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={adjustmentQuantity} onChange={(event) => setAdjustmentQuantity(event.target.value)} /></Field>
+          </div>
+          {adjustmentProduct && resultingQuantity !== null && <div className={`rounded-lg px-3 py-3 text-sm ${resultingQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}><p>Existencia actual: <strong>{adjustmentProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del ajuste: <strong>{resultingQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{resultingQuantity < 0 && <p className="mt-1 font-semibold">La existencia no puede quedar negativa.</p>}</div>}
+          {adjustmentError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{adjustmentError}</p>}
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setAdjustmentModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={adjust.isPending || !adjustmentProductId || resultingQuantity === null || resultingQuantity < 0}>{adjust.isPending ? 'Guardando...' : 'Aplicar ajuste'}</Button></div>
         </form>
       </Modal>
     </section>

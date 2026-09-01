@@ -105,6 +105,10 @@ export const productsApi = {
 export const inventoryApi = {
   stocks: async (params?: Record<string, unknown>) =>
     (await api.get<InventoryStock[]>('/inventory/stocks', { params })).data,
+  exportStocksExcel: async (params?: Record<string, unknown>) =>
+    (await api.get('/inventory/stocks/export/excel', { params, responseType: 'blob' })).data as Blob,
+  exportStocksPdf: async (params?: Record<string, unknown>) =>
+    (await api.get('/inventory/stocks/export/pdf', { params, responseType: 'blob' })).data as Blob,
   entries: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryEntry>>('/inventory/entries', { params })).data,
   createEntry: async (payload: {
@@ -115,6 +119,12 @@ export const inventoryApi = {
     entryDate: string;
     items: Array<{ productId: string; quantity: number }>;
   }) => (await api.post<InventoryEntry>('/inventory/entries', payload)).data,
+  adjustStock: async (payload: {
+    pointOfSaleId: string;
+    productId: string;
+    operation: 'ADD' | 'SUBTRACT';
+    quantity: number;
+  }) => (await api.post<InventoryStock>('/inventory/adjustments', payload)).data,
 };
 
 export const suppliersApi = {
