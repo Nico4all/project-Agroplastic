@@ -22,6 +22,7 @@ import {
   PriceListProduct,
   InventoryEntry,
   InventoryStock,
+  ProductHistoryResult,
 } from '../types';
 import { api } from './client';
 
@@ -111,6 +112,10 @@ export const inventoryApi = {
     (await api.get('/inventory/stocks/export/excel', { params, responseType: 'blob' })).data as Blob,
   exportStocksPdf: async (params?: Record<string, unknown>) =>
     (await api.get('/inventory/stocks/export/pdf', { params, responseType: 'blob' })).data as Blob,
+  productHistory: async (params?: Record<string, unknown>) =>
+    (await api.get<ProductHistoryResult>('/inventory/history', { params })).data,
+  exportProductHistoryExcel: async (params?: Record<string, unknown>) =>
+    (await api.get('/inventory/history/export/excel', { params, responseType: 'blob' })).data as Blob,
   entries: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryEntry>>('/inventory/entries', { params })).data,
   createEntry: async (payload: {

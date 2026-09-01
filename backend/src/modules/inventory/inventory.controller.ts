@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
 import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
+import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 import { InventoryService } from './inventory.service';
 
 @UseGuards(JwtAuthGuard)
@@ -40,6 +41,21 @@ export class InventoryController {
   @Get('entries')
   findEntries(@CurrentUser() user: { userId: string }, @Query() query: QueryInventoryDto) {
     return this.inventory.findEntries(user.userId, query);
+  }
+
+  @Get('history')
+  findProductHistory(@CurrentUser() user: { userId: string }, @Query() query: QueryProductHistoryDto) {
+    return this.inventory.findProductHistory(user.userId, query);
+  }
+
+  @Get('history/export/excel')
+  async exportProductHistoryExcel(
+    @CurrentUser() user: { userId: string },
+    @Query() query: QueryProductHistoryDto,
+    @Res() res: Response,
+  ) {
+    const file = await this.inventory.exportProductHistoryExcel(user.userId, query);
+    this.sendFile(res, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   }
 
   @Post('entries')

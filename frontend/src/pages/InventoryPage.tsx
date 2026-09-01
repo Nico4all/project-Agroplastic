@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Boxes, Download, FileText, PackagePlus, Search, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Search, Trash2, TriangleAlert } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
-import { Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
+import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { dateInput } from '../utils/format';
 import { downloadBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
@@ -40,6 +40,10 @@ export function InventoryPage() {
   const [adjustmentOperation, setAdjustmentOperation] = useState<'ADD' | 'SUBTRACT'>('ADD');
   const [adjustmentQuantity, setAdjustmentQuantity] = useState('1');
   const [adjustmentError, setAdjustmentError] = useState('');
+  const [historyProductId, setHistoryProductId] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyDates, setHistoryDates] = useState({ fromDate: '', toDate: '' });
+  const [historyExporting, setHistoryExporting] = useState(false);
   const { data: points = [] } = useQuery({ queryKey: ['points-of-sale'], queryFn: pointsOfSaleApi.list, enabled: isAdmin });
 
   useEffect(() => {
@@ -67,6 +71,20 @@ export function InventoryPage() {
     queryKey: ['products', 'inventory-adjustment', adjustmentPointOfSaleId],
     queryFn: () => productsApi.list({ pointOfSaleId: adjustmentPointOfSaleId, isActive: true }),
     enabled: isAdmin && adjustmentModalOpen && Boolean(adjustmentPointOfSaleId),
+  });
+  const { data: historyProducts = [] } = useQuery({
+    queryKey: ['products', 'inventory-history', pointOfSaleId],
+    queryFn: () => productsApi.list(baseParams),
+    enabled: Boolean(pointOfSaleId),
+  });
+  const historyParams = useMemo(
+    () => Object.fromEntries(Object.entries({ page: historyPage, pageSize: 15, ...baseParams, productId: historyProductId, ...historyDates }).filter(([, value]) => value !== '')),
+    [historyPage, baseParams, historyProductId, historyDates],
+  );
+  const { data: productHistory, isLoading: historyLoading } = useQuery({
+    queryKey: ['inventory', 'product-history', historyParams],
+    queryFn: () => inventoryApi.productHistory(historyParams),
+    enabled: Boolean(pointOfSaleId && historyProductId),
   });
 
   const pointName = isAdmin ? points.find((point) => point.id === pointOfSaleId)?.name : user?.pointOfSale?.name;
@@ -184,6 +202,25 @@ export function InventoryPage() {
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
+  const historyProductOptions = historyProducts.map((product) => ({
+    value: product.id,
+    label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}${product.isActive ? '' : ' - inactivo'}`,
+  }));
+
+  async function exportProductHistory() {
+    if (!historyProductId) return;
+    setHistoryExporting(true);
+    try {
+      const blob = await inventoryApi.exportProductHistoryExcel({ ...baseParams, productId: historyProductId, ...historyDates });
+      const productName = historyProducts.find((product) => product.id === historyProductId)?.description || 'producto';
+      const safeName = productName.replace(/[\\/:*?"<>|]/g, '-');
+      downloadBlob(blob, `Histórico - ${safeName} - ${pointName || 'bodega'}.xlsx`);
+    } catch {
+      toast('No se pudo generar el histórico del producto', 'error');
+    } finally {
+      setHistoryExporting(false);
+    }
+  }
 
   return (
     <section className="space-y-6">
@@ -198,7 +235,7 @@ export function InventoryPage() {
       </div>
 
       <Card className="p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {isAdmin ? <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => { setPointOfSaleId(event.target.value); setPage(1); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field> : <Field label="Punto de venta"><Input disabled value={pointName || 'Sin asignar'} /></Field>}
+        {isAdmin ? <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => { setPointOfSaleId(event.target.value); setPage(1); setHistoryProductId(''); setHistoryPage(1); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field> : <Field label="Punto de venta"><Input disabled value={pointName || 'Sin asignar'} /></Field>}
         <Field label="Desde"><Input type="date" value={filters.fromDate} onChange={(event) => setFilter('fromDate', event.target.value)} /></Field>
         <Field label="Hasta"><Input type="date" value={filters.toDate} onChange={(event) => setFilter('toDate', event.target.value)} /></Field>
         <Field label="Buscar entradas"><div className="relative"><Input value={filters.search} onChange={(event) => setFilter('search', event.target.value)} placeholder="Proveedor, remisión o producto" className="pl-9" /><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" /></div></Field>
@@ -213,6 +250,15 @@ export function InventoryPage() {
 
         <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><Boxes className="h-4 w-4 text-brand" /><h2 className="font-bold">Existencias actuales - {pointName}</h2></div><div className="max-h-[420px] overflow-auto"><table className="w-full min-w-[620px] text-sm"><thead className="sticky top-0 bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Existencia</th><th className="px-4 py-3">Estado</th></tr></thead><tbody className="divide-y divide-line">{stocks.map((stock) => <tr key={stock.id}><td className="px-4 py-3 font-semibold">{stock.productDescription}</td><td className={`px-4 py-3 text-right font-bold ${stock.quantity <= 0 ? 'text-expense' : 'text-brand-dark'}`}>{stock.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{stock.isActive ? 'Activo' : 'Inactivo'}</td></tr>)}</tbody></table>{!stocks.length && <p className="p-6 text-center text-sm text-mute">No hay productos asignados.</p>}</div></Card>
       </>}
+
+      {pointOfSaleId && <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3"><div className="flex items-center gap-2"><History className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Histórico por producto</h2><p className="text-xs text-mute">Entradas de mercancía y salidas por pedidos con inventario antes y después.</p></div></div><Button variant="secondary" disabled={!historyProductId || historyExporting} onClick={exportProductHistory}><FileSpreadsheet className="h-4 w-4" /> {historyExporting ? 'Generando...' : 'Excel'}</Button></div>
+        <div className="grid gap-3 border-b border-line p-4 md:grid-cols-3"><Field label="Producto"><SearchableSelect value={historyProductId} onChange={(value) => { setHistoryProductId(value); setHistoryPage(1); }} options={historyProductOptions} placeholder="Buscar producto" emptyMessage="No hay productos en esta bodega" /></Field><Field label="Desde"><Input type="date" value={historyDates.fromDate} onChange={(event) => { setHistoryDates((current) => ({ ...current, fromDate: event.target.value })); setHistoryPage(1); }} /></Field><Field label="Hasta"><Input type="date" value={historyDates.toDate} onChange={(event) => { setHistoryDates((current) => ({ ...current, toDate: event.target.value })); setHistoryPage(1); }} /></Field></div>
+        {!historyProductId ? <EmptyState title="Selecciona un producto para consultar sus movimientos" /> : historyLoading || !productHistory ? <div className="p-6"><Spinner /></div> : <>
+          <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 xl:grid-cols-4"><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Movimientos</p><p className="mt-1 text-xl font-bold text-brand-dark">{productHistory.summary.movements}</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Entradas</p><p className="mt-1 text-xl font-bold text-brand-dark">+{productHistory.summary.totalInput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p><p className="text-xs text-mute">{productHistory.summary.entries} registros</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Salidas por pedidos</p><p className="mt-1 text-xl font-bold text-expense">-{productHistory.summary.totalOutput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p><p className="text-xs text-mute">{productHistory.summary.orders} pedidos</p></div><div className="rounded-lg bg-paper p-3"><p className="text-xs font-semibold uppercase text-mute">Inventario actual</p><p className="mt-1 text-xl font-bold text-brand-dark">{productHistory.summary.currentInventory.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</p></div></div>
+          {productHistory.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Cliente / proveedor</th><th className="px-4 py-3 text-right">Inventario antes</th><th className="px-4 py-3 text-right">Entrada</th><th className="px-4 py-3 text-right">Salida</th><th className="px-4 py-3 text-right">Inventario después</th><th className="px-4 py-3">Detalle</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{productHistory.data.map((movement) => <tr key={movement.id}><td className="px-4 py-3">{dateInput(movement.date)}</td><td className="px-4 py-3"><Badge tone={movement.movementType === 'ENTRY' ? 'income' : 'neutral'}>{movement.movementType === 'ENTRY' ? 'Entrada' : 'Pedido'}</Badge></td><td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3"><p className="font-semibold">{movement.thirdPartyName}</p>{movement.thirdPartyDocument && <p className="text-xs text-mute">{movement.thirdPartyDocument}</p>}</td><td className="px-4 py-3 text-right font-semibold">{movement.inventoryBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right font-bold text-brand-dark">{movement.quantityInput ? `+${movement.quantityInput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}` : '-'}</td><td className="px-4 py-3 text-right font-bold text-expense">{movement.quantityOutput ? `-${movement.quantityOutput.toLocaleString('es-CO', { maximumFractionDigits: 3 })}` : '-'}</td><td className="px-4 py-3 text-right font-semibold text-brand-dark">{movement.inventoryAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{movement.detail}</td><td className="px-4 py-3">{movement.userName}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={productHistory.page} pageSize={productHistory.pageSize} total={productHistory.total} onChange={setHistoryPage} /></div></> : <EmptyState title="Este producto no tiene entradas ni salidas por pedidos en el periodo" />}
+        </>}
+      </Card>}
 
       {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="border-b border-line px-4 py-3"><h2 className="font-bold">Historial de entradas</h2></div>{entriesLoading || !entries ? <div className="p-6"><Spinner /></div> : entries.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Proveedor</th><th className="px-4 py-3">Remisión</th><th className="px-4 py-3">Productos</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{entries.data.map((entry) => <tr key={entry.id}><td className="px-4 py-3 font-mono font-semibold">{entry.documentNumber}</td><td className="px-4 py-3">{dateInput(entry.entryDate)}</td><td className="px-4 py-3 font-semibold">{entry.supplierName}</td><td className="px-4 py-3">{entry.remittanceNumber || '-'}</td><td className="px-4 py-3"><ul className="space-y-1">{entry.items.map((item) => <li key={item.id}>{item.productDescription} <span className="font-bold text-brand-dark">+{item.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</span></li>)}</ul></td><td className="px-4 py-3">{entry.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={entries.page} pageSize={entries.pageSize} total={entries.total} onChange={setPage} /></div></> : <EmptyState title="Sin entradas registradas" />}</Card>}
 

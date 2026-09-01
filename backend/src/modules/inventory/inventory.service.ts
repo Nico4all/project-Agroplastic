@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InventoryMovementType, Prisma, User } from '@prisma/client';
 import { Workbook } from 'exceljs';
 import { decimalToNumber } from '../../common/helpers/money';
@@ -10,6 +10,7 @@ import { UsersService } from '../users/users.service';
 import { CreateInventoryAdjustmentDto, InventoryAdjustmentOperation } from './dto/create-inventory-adjustment.dto';
 import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
+import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 
 @Injectable()
 export class InventoryService {
@@ -170,7 +171,7 @@ export class InventoryService {
     const actor = await this.users.getActiveUser(userId);
     const pointOfSaleId = await this.resolvePointOfSale(actor, query.pointOfSaleId);
     const entryDate: Prisma.DateTimeFilter = {};
-    if (query.fromDate) entryDate.gte = new Date(query.fromDate);
+    if (query.fromDate) entryDate.gte = this.startOfDay(query.fromDate);
     if (query.toDate) entryDate.lte = this.endOfDay(query.toDate);
     const where: Prisma.InventoryEntryWhereInput = {
       pointOfSaleId,
@@ -197,6 +198,145 @@ export class InventoryService {
       }),
     ]);
     return { data: rows.map((row) => this.serializeEntry(row)), total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async findProductHistory(userId: string, query: QueryProductHistoryDto) {
+    const context = await this.productHistoryContext(userId, query);
+    const [total, rows, stats] = await this.prisma.$transaction([
+      this.prisma.inventoryMovement.count({ where: context.where }),
+      this.prisma.inventoryMovement.findMany({
+        where: context.where,
+        include: this.productHistoryRelations(),
+        orderBy: { createdAt: query.sort },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.inventoryMovement.groupBy({
+        by: ['type'],
+        where: context.where,
+        orderBy: { type: 'asc' },
+        _count: { _all: true },
+        _sum: { quantityChange: true },
+      }),
+    ]);
+    const summary = this.productHistorySummary(stats, total, decimalToNumber(context.stock.quantity));
+    return {
+      data: rows.map((row) => this.serializeProductHistory(row)),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+      summary,
+      product: { id: context.stock.product.id, description: context.stock.product.description },
+      pointOfSale: context.stock.pointOfSale,
+    };
+  }
+
+  async exportProductHistoryExcel(userId: string, query: QueryProductHistoryDto) {
+    const context = await this.productHistoryContext(userId, query);
+    const rows = await this.prisma.inventoryMovement.findMany({
+      where: context.where,
+      include: this.productHistoryRelations(),
+      orderBy: { createdAt: query.sort },
+    });
+    const serialized = rows.map((row) => this.serializeProductHistory(row));
+    const totalInput = serialized.reduce((sum, row) => sum + row.quantityInput, 0);
+    const totalOutput = serialized.reduce((sum, row) => sum + row.quantityOutput, 0);
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet('Histórico', {
+      views: [{ state: 'frozen', ySplit: 8 }],
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    });
+    const generatedAt = new Intl.DateTimeFormat('es-CO', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'America/Bogota',
+    }).format(new Date());
+    workbook.creator = 'AgroPlastick';
+    workbook.created = new Date();
+    workbook.title = `Histórico de ${context.stock.product.description}`;
+    workbook.subject = `Entradas y salidas por pedidos en ${context.stock.pointOfSale.name}`;
+    sheet.columns = [
+      { key: 'date', width: 17 },
+      { key: 'type', width: 15 },
+      { key: 'document', width: 19 },
+      { key: 'thirdParty', width: 34 },
+      { key: 'before', width: 20 },
+      { key: 'input', width: 17 },
+      { key: 'output', width: 18 },
+      { key: 'after', width: 20 },
+      { key: 'detail', width: 26 },
+      { key: 'user', width: 24 },
+    ];
+    sheet.mergeCells('A1:J1');
+    sheet.mergeCells('A2:J2');
+    sheet.mergeCells('A3:J3');
+    sheet.mergeCells('A4:J4');
+    sheet.getCell('A1').value = 'HISTÓRICO DE MOVIMIENTOS POR PRODUCTO';
+    sheet.getCell('A2').value = context.stock.product.description.toLocaleUpperCase('es-CO');
+    sheet.getCell('A3').value = `Bodega: ${context.stock.pointOfSale.name}`;
+    sheet.getCell('A4').value = `Periodo: ${query.fromDate || 'Inicio'} a ${query.toDate || 'Hoy'} · Generado: ${generatedAt}`;
+    ['A1', 'A2', 'A3'].forEach((address, index) => {
+      const cell = sheet.getCell(address);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index < 2 ? 'FF009846' : 'FFEDF8F2' } };
+      cell.font = { name: 'Arial', bold: true, color: { argb: index < 2 ? 'FFFFFFFF' : 'FF096B38' }, size: index === 0 ? 16 : index === 1 ? 13 : 11 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    sheet.getCell('A4').font = { name: 'Arial', italic: true, color: { argb: 'FF5F6F65' }, size: 9 };
+    sheet.getCell('A4').alignment = { horizontal: 'right' };
+    const summary = [
+      { label: 'MOVIMIENTOS', value: serialized.length, start: 1, end: 2 },
+      { label: 'TOTAL ENTRADA', value: totalInput, start: 3, end: 5 },
+      { label: 'TOTAL SALIDA', value: totalOutput, start: 6, end: 8 },
+      { label: 'INVENTARIO ACTUAL', value: decimalToNumber(context.stock.quantity), start: 9, end: 10 },
+    ];
+    summary.forEach(({ label, value, start, end }) => {
+      sheet.mergeCells(6, start, 6, end);
+      const cell = sheet.getCell(6, start);
+      cell.value = `${label}\n${this.formatQuantity(Number(value))}`;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF8F2' } };
+      cell.font = { name: 'Arial', bold: true, color: { argb: 'FF096B38' }, size: 10 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = this.excelBorder();
+    });
+    sheet.getRow(6).height = 38;
+    sheet.getRow(8).values = ['FECHA', 'TIPO', 'DOCUMENTO', 'CLIENTE / PROVEEDOR', 'INVENTARIO ANTES', 'ENTRADA', 'SALIDA', 'INVENTARIO DESPUÉS', 'DETALLE', 'USUARIO'];
+    sheet.getRow(8).eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF096B38' } };
+      cell.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = this.excelBorder();
+    });
+    sheet.getRow(8).height = 28;
+    serialized.forEach((movement, index) => {
+      const row = sheet.addRow({
+        date: formatDate(movement.date),
+        type: movement.movementType === 'ENTRY' ? 'Entrada' : 'Pedido',
+        document: movement.documentNumber,
+        thirdParty: [movement.thirdPartyName, movement.thirdPartyDocument].filter(Boolean).join(' · '),
+        before: movement.inventoryBefore,
+        input: movement.quantityInput || null,
+        output: movement.quantityOutput || null,
+        after: movement.inventoryAfter,
+        detail: movement.detail,
+        user: movement.userName,
+      });
+      row.font = { name: 'Arial', size: 10 };
+      row.eachCell((cell) => {
+        cell.border = this.excelBorder();
+        if (index % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FBF9' } };
+      });
+      [5, 6, 7, 8].forEach((column) => {
+        row.getCell(column).numFmt = '#,##0.###';
+        row.getCell(column).alignment = { horizontal: 'right', vertical: 'middle' };
+      });
+    });
+    sheet.autoFilter = { from: 'A8', to: `J${Math.max(8, 8 + serialized.length)}` };
+    const output = await workbook.xlsx.writeBuffer();
+    const date = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    return {
+      buffer: Buffer.from(output),
+      filename: `Histórico movimientos - ${this.safeFilename(context.stock.product.description)} - ${this.safeFilename(context.stock.pointOfSale.name)} - ${date}.xlsx`,
+    };
   }
 
   async createEntry(userId: string, dto: CreateInventoryEntryDto) {
@@ -339,6 +479,96 @@ export class InventoryService {
     return pointOfSaleId;
   }
 
+  private async productHistoryContext(userId: string, query: QueryProductHistoryDto) {
+    const actor = await this.users.getActiveUser(userId);
+    const pointOfSaleId = await this.resolvePointOfSale(actor, query.pointOfSaleId);
+    const stock = await this.prisma.inventoryStock.findUnique({
+      where: { pointOfSaleId_productId: { pointOfSaleId, productId: query.productId } },
+      include: {
+        product: { select: { id: true, description: true } },
+        pointOfSale: { select: { id: true, name: true, code: true } },
+      },
+    });
+    if (!stock) throw new NotFoundException('Producto no encontrado en esta bodega');
+    const createdAt: Prisma.DateTimeFilter = {};
+    if (query.fromDate) createdAt.gte = this.startOfDay(query.fromDate);
+    if (query.toDate) createdAt.lte = this.endOfDay(query.toDate);
+    const where: Prisma.InventoryMovementWhereInput = {
+      pointOfSaleId,
+      productId: query.productId,
+      OR: [
+        { type: InventoryMovementType.ORDER, orderId: { not: null } },
+        { type: InventoryMovementType.ENTRY, inventoryEntryId: { not: null } },
+      ],
+      ...(Object.keys(createdAt).length ? { createdAt } : {}),
+    };
+    return { stock, where };
+  }
+
+  private productHistoryRelations() {
+    return {
+      order: {
+        select: {
+          id: true,
+          documentNumber: true,
+          clientName: true,
+          clientDocument: true,
+          status: true,
+          invoicedAt: true,
+        },
+      },
+      inventoryEntry: {
+        select: {
+          id: true,
+          documentNumber: true,
+          supplierName: true,
+          remittanceNumber: true,
+        },
+      },
+      user: { select: { id: true, name: true, username: true } },
+    };
+  }
+
+  private serializeProductHistory(row: any) {
+    const quantityChange = decimalToNumber(row.quantityChange);
+    const inventoryAfter = decimalToNumber(row.balanceAfter);
+    const isEntry = row.type === InventoryMovementType.ENTRY;
+    const document = isEntry ? row.inventoryEntry : row.order;
+    return {
+      id: row.id,
+      date: row.createdAt,
+      movementType: row.type,
+      documentId: document.id,
+      documentNumber: document.documentNumber,
+      thirdPartyName: isEntry ? document.supplierName : document.clientName,
+      thirdPartyDocument: isEntry ? null : document.clientDocument,
+      quantityInput: quantityChange > 0 ? quantityChange : 0,
+      quantityOutput: quantityChange < 0 ? Math.abs(quantityChange) : 0,
+      inventoryBefore: inventoryAfter - quantityChange,
+      inventoryAfter,
+      detail: isEntry
+        ? document.remittanceNumber ? `Remisión ${document.remittanceNumber}` : 'Entrada aplicada'
+        : `${document.status === 'VOID' ? 'Anulado' : 'Activo'} · ${document.invoicedAt ? 'Facturado' : 'Sin facturar'}`,
+      orderStatus: isEntry ? null : document.status,
+      invoicedAt: isEntry ? null : document.invoicedAt,
+      userName: row.user.name,
+    };
+  }
+
+  private productHistorySummary(stats: any[], movements: number, currentInventory: number) {
+    const byType = new Map(stats.map((row) => [row.type, row]));
+    const entries = byType.get(InventoryMovementType.ENTRY);
+    const orders = byType.get(InventoryMovementType.ORDER);
+    return {
+      movements,
+      entries: entries?._count?._all || 0,
+      orders: orders?._count?._all || 0,
+      totalInput: decimalToNumber(entries?._sum?.quantityChange),
+      totalOutput: Math.abs(decimalToNumber(orders?._sum?.quantityChange)),
+      currentInventory,
+    };
+  }
+
   private async getStockReport(userId: string, query: QueryInventoryDto) {
     const actor = await this.users.getActiveUser(userId);
     const pointOfSaleId = await this.resolvePointOfSale(actor, query.pointOfSaleId);
@@ -392,8 +622,10 @@ export class InventoryService {
   }
 
   private endOfDay(value: string) {
-    const date = new Date(value);
-    date.setHours(23, 59, 59, 999);
-    return date;
+    return new Date(`${value}T23:59:59.999-05:00`);
+  }
+
+  private startOfDay(value: string) {
+    return new Date(`${value}T00:00:00.000-05:00`);
   }
 }

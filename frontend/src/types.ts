@@ -208,6 +208,37 @@ export type InventoryEntry = {
   items: InventoryEntryItem[];
 };
 
+export type ProductHistoryRow = {
+  id: string;
+  date: string;
+  movementType: 'ENTRY' | 'ORDER';
+  documentId: string;
+  documentNumber: string;
+  thirdPartyName: string;
+  thirdPartyDocument?: string | null;
+  quantityInput: number;
+  quantityOutput: number;
+  inventoryBefore: number;
+  inventoryAfter: number;
+  detail: string;
+  orderStatus?: RecordStatus | null;
+  invoicedAt?: string | null;
+  userName: string;
+};
+
+export type ProductHistoryResult = PaginatedResult<ProductHistoryRow> & {
+  summary: {
+    movements: number;
+    entries: number;
+    orders: number;
+    totalInput: number;
+    totalOutput: number;
+    currentInventory: number;
+  };
+  product: { id: string; description: string };
+  pointOfSale: Pick<PointOfSale, 'id' | 'name' | 'code'>;
+};
+
 export type Supplier = {
   id: string;
   name: string;
