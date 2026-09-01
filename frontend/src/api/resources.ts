@@ -11,6 +11,7 @@ import {
   Order,
   OrderPaymentMethod,
   PortfolioResult,
+  PortfolioCollection,
   PointOfSale,
   Product,
   Transaction,
@@ -194,6 +195,10 @@ export const portfolioApi = {
     collectionDate: string;
     description?: string;
   }) => (await api.post('/portfolio/collections', payload)).data,
+  collections: async (params?: Record<string, unknown>) =>
+    (await api.get<PaginatedResult<PortfolioCollection>>('/portfolio/collections', { params })).data,
+  setCollectionCaused: async (id: string, isCaused: boolean) =>
+    (await api.patch<PortfolioCollection>(`/portfolio/collections/${id}/caused`, { isCaused })).data,
 };
 
 export const clientsApi = {

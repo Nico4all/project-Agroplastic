@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, HandCoins, ReceiptText, Search } from 'lucide-react';
+import { Banknote, CheckCircle2, HandCoins, ReceiptText, Search } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { pointsOfSaleApi, portfolioApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { PaymentMethod, PortfolioOrder } from '../types';
-import { Badge, Button, Card, EmptyState, Field, Input, Modal, Select, Spinner, useToast } from '../ui/components';
+import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, Select, Spinner, useToast } from '../ui/components';
 import { dateInput, money } from '../utils/format';
 import { isAdminRole } from '../utils/roles';
 
@@ -23,6 +23,8 @@ export function PortfolioPage() {
   const isAdmin = isAdminRole(user?.role);
   const [pointOfSaleId, setPointOfSaleId] = useState('');
   const [search, setSearch] = useState('');
+  const [collectionPage, setCollectionPage] = useState(1);
+  const [collectionFilters, setCollectionFilters] = useState({ fromDate: '', toDate: '', isCaused: '' });
   const [collecting, setCollecting] = useState<PortfolioOrder | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState('');
@@ -31,18 +33,33 @@ export function PortfolioPage() {
   const [error, setError] = useState('');
 
   const params = useMemo(() => Object.fromEntries(Object.entries({ pointOfSaleId, search }).filter(([, value]) => value)), [pointOfSaleId, search]);
+  const collectionParams = useMemo(
+    () => Object.fromEntries(Object.entries({ page: collectionPage, pageSize: 10, pointOfSaleId, search, ...collectionFilters }).filter(([, value]) => value !== '')),
+    [collectionPage, pointOfSaleId, search, collectionFilters],
+  );
   const { data, isLoading } = useQuery({ queryKey: ['portfolio', params], queryFn: () => portfolioApi.list(params) });
+  const { data: collectionsData, isLoading: collectionsLoading } = useQuery({ queryKey: ['portfolio-collections', collectionParams], queryFn: () => portfolioApi.collections(collectionParams) });
   const { data: points = [] } = useQuery({ queryKey: ['points-of-sale'], queryFn: pointsOfSaleApi.list, enabled: isAdmin });
 
   const collect = useMutation({
     mutationFn: portfolioApi.collect,
     onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolio-collections'] });
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       toast(`Recaudo ${result.documentNumber} registrado`);
       setCollecting(null);
     },
     onError: (err) => setError(getApiError(err, 'No se pudo registrar el recaudo')),
+  });
+
+  const caused = useMutation({
+    mutationFn: ({ id, isCaused }: { id: string; isCaused: boolean }) => portfolioApi.setCollectionCaused(id, isCaused),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio-collections'] });
+      toast(variables.isCaused ? 'Recaudo marcado como causado' : 'Causación retirada');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo cambiar la causación'), 'error'),
   });
 
   const openCollection = (order: PortfolioOrder) => {
@@ -74,8 +91,8 @@ export function PortfolioPage() {
       <div><h1 className="text-2xl font-extrabold tracking-tight">Cartera</h1><p className="text-sm text-mute">Clientes con crédito, pedidos pendientes y recaudos de cartera.</p></div>
 
       <Card className="p-4"><div className={`grid gap-3 ${isAdmin ? 'md:grid-cols-2' : ''}`}>
-        {isAdmin && <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => setPointOfSaleId(event.target.value)}><option value="">Todos</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>}
-        <Field label="Buscar"><div className="relative"><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cliente, documento o pedido" className="pl-9" /><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" /></div></Field>
+        {isAdmin && <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => { setPointOfSaleId(event.target.value); setCollectionPage(1); }}><option value="">Todos</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>}
+        <Field label="Buscar"><div className="relative"><Input value={search} onChange={(event) => { setSearch(event.target.value); setCollectionPage(1); }} placeholder="Cliente, documento o pedido" className="pl-9" /><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" /></div></Field>
       </div></Card>
 
       {isLoading || !data ? <Spinner /> : <>
@@ -91,6 +108,11 @@ export function PortfolioPage() {
           <div className="overflow-x-auto"><table className="w-full min-w-[920px] text-sm"><thead className="text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Pedido / factura</th><th className="px-4 py-3">Punto de venta</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3 text-right">Crédito</th><th className="px-4 py-3 text-right">Recaudado</th><th className="px-4 py-3 text-right">Saldo</th><th className="px-4 py-3 text-right">Acción</th></tr></thead><tbody className="divide-y divide-line">{client.orders.map((order) => <tr key={order.id}><td className="px-4 py-3"><p className="font-mono font-semibold">{order.documentNumber}</p><Badge tone={order.invoicedAt ? 'income' : 'neutral'}>{order.invoicedAt ? 'Facturado' : 'Pedido sin facturar'}</Badge>{order.collections.length > 0 && <p className="mt-1 text-xs text-mute">Último recaudo: {order.collections[order.collections.length - 1]?.documentNumber}</p>}</td><td className="px-4 py-3">{order.pointOfSale?.name || '-'}</td><td className="px-4 py-3">{dateInput(order.createdAt)}</td><td className="money px-4 py-3 text-right">{money(order.creditAmount)}</td><td className="money px-4 py-3 text-right text-brand-dark">{money(order.collectedAmount)}</td><td className="money px-4 py-3 text-right font-bold text-expense">{money(order.balanceDue)}</td><td className="px-4 py-3 text-right"><Button onClick={() => openCollection(order)}><HandCoins className="h-4 w-4" /> Recaudar</Button></td></tr>)}</tbody></table></div>
         </Card>)}</div> : <EmptyState title="No hay cartera pendiente" />}
       </>}
+
+      <Card className="overflow-hidden p-0">
+        <div className="border-b border-line px-4 py-4"><h2 className="font-bold">Pagos realizados</h2><p className="text-sm text-mute">Historial de recaudos registrados en Cartera.</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><Field label="Desde"><Input type="date" value={collectionFilters.fromDate} onChange={(event) => { setCollectionFilters((current) => ({ ...current, fromDate: event.target.value })); setCollectionPage(1); }} /></Field><Field label="Hasta"><Input type="date" value={collectionFilters.toDate} onChange={(event) => { setCollectionFilters((current) => ({ ...current, toDate: event.target.value })); setCollectionPage(1); }} /></Field><Field label="Causación"><Select value={collectionFilters.isCaused} onChange={(event) => { setCollectionFilters((current) => ({ ...current, isCaused: event.target.value })); setCollectionPage(1); }}><option value="">Todos</option><option value="false">Pendiente</option><option value="true">Causado</option></Select></Field></div></div>
+        {collectionsLoading || !collectionsData ? <div className="p-6"><Spinner /></div> : collectionsData.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Pedido / factura</th><th className="px-4 py-3">Bodega</th><th className="px-4 py-3">Medio</th><th className="px-4 py-3 text-right">Valor</th><th className="px-4 py-3">Causación</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3 text-right">Acción</th></tr></thead><tbody className="divide-y divide-line">{collectionsData.data.map((item) => <tr key={item.id}><td className="px-4 py-3 font-mono font-semibold">{item.documentNumber}</td><td className="px-4 py-3">{dateInput(item.collectionDate)}</td><td className="px-4 py-3"><p className="font-semibold">{item.order?.clientName || '-'}</p><p className="text-xs text-mute">{item.order?.clientDocument}</p></td><td className="px-4 py-3"><p className="font-mono font-semibold">{item.order?.documentNumber || '-'}</p><span className="text-xs text-mute">{item.order?.invoicedAt ? 'Facturado' : 'Pedido sin facturar'}</span></td><td className="px-4 py-3">{item.pointOfSale?.name || '-'}</td><td className="px-4 py-3">{item.paymentMethod === 'CASH' ? 'Efectivo' : 'Banco'}</td><td className="money px-4 py-3 text-right font-bold text-brand-dark">{money(item.amount)}</td><td className="px-4 py-3"><Badge tone={item.causedAt ? 'income' : 'neutral'}>{item.causedAt ? 'Causado' : 'Pendiente'}</Badge></td><td className="px-4 py-3">{item.user?.name || '-'}</td><td className="px-4 py-3 text-right">{isAdmin && <Button variant={item.causedAt ? 'secondary' : 'primary'} className="px-2 py-1.5" disabled={caused.isPending} onClick={() => caused.mutate({ id: item.id, isCaused: !item.causedAt })}><CheckCircle2 className="h-4 w-4" /> {item.causedAt ? 'Desmarcar' : 'Causar'}</Button>}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={collectionsData.page} pageSize={collectionsData.pageSize} total={collectionsData.total} onChange={setCollectionPage} /></div></> : <EmptyState title="No hay pagos de cartera registrados" />}
+      </Card>
 
       <Modal open={Boolean(collecting)} onClose={() => setCollecting(null)} title="Registrar recaudo de cartera">
         {collecting && <form onSubmit={submit} className="space-y-4">

@@ -52,9 +52,6 @@ export class IncomesService {
 
   async create(userId: string, dto: CreateIncomeDto) {
     const actor = await this.users.getActiveUser(userId);
-    if (dto.type !== 'ADVANCE') {
-      throw new BadRequestException('Los recaudos deben registrarse desde el módulo de Cartera');
-    }
     if (!actor.pointOfSaleId) throw new BadRequestException('Debes tener un punto de venta asignado para registrar ingresos');
     const client = await this.clients.findAccessible(actor, dto.clientId);
     if (!client.isActive) throw new BadRequestException('El cliente esta inactivo');
@@ -285,7 +282,7 @@ export class IncomesService {
   }
 
   private incomeTypeLabel(value: string) {
-    return value === 'ADVANCE' ? 'Anticipo' : 'Pago a cartera';
+    return value === 'ADVANCE' ? 'Anticipo' : 'Pago a cartera/factura';
   }
 
   private paymentMethodLabel(value: string) {

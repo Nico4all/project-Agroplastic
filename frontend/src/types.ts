@@ -259,11 +259,25 @@ export type OrderPayment = {
 
 export type PortfolioCollection = {
   id: string;
+  userId?: string;
+  pointOfSaleId?: string;
+  orderId?: string;
   documentNumber: string;
   paymentMethod: PaymentMethod;
   amount: number;
   collectionDate: string;
   description?: string | null;
+  causedAt?: string | null;
+  user?: Pick<User, 'id' | 'name' | 'username' | 'role'>;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
+  order?: {
+    id: string;
+    documentNumber: string;
+    clientId: string;
+    clientName: string;
+    clientDocument: string;
+    invoicedAt?: string | null;
+  };
 };
 
 export type Order = {
