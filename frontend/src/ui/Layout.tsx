@@ -95,10 +95,17 @@ export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } finally {
+      setDrawerOpen(false);
+      navigate('/login', { replace: true });
+    }
   };
 
   const initials = user?.name?.slice(0, 2).toUpperCase() || 'AP';
@@ -115,8 +122,13 @@ export function Layout() {
           </p>
         </div>
       </div>
-      <button onClick={handleLogout} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white/65 transition hover:bg-white/10 hover:text-white">
-        <LogOut className="h-4 w-4" /> Salir
+      <button
+        type="button"
+        onClick={handleLogout}
+        disabled={isLoggingOut}
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white/65 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
+      >
+        <LogOut className="h-4 w-4" /> {isLoggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
       </button>
     </div>
   );

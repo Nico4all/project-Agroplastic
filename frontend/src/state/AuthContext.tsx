@@ -52,9 +52,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return data;
     },
     logout: async () => {
-      await api.post('/auth/logout');
-      setAccessToken(null);
-      setUser(null);
+      try {
+        await api.post('/auth/logout');
+      } finally {
+        setAccessToken(null);
+        setUser(null);
+      }
     },
   }), [user, loading]);
 

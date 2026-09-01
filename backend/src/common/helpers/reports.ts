@@ -380,17 +380,17 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   const layout = measureOrderTicket(data, pageWidth);
   const { doc, done } = createDocument({ size: [pageWidth, layout.pageHeight], margin: 0 });
   const contentWidth = pageWidth - 32;
-  const logo = getLogoBuffer();
+  const logo = getThermalLogoBuffer();
 
   if (logo) doc.image(logo, 16, 16, { fit: [contentWidth, 66], align: 'center', valign: 'center' });
-  else doc.font('Helvetica-Bold').fontSize(20).fillColor(BRAND_GREEN).text('AgroPlastick', 16, 30, { width: contentWidth, align: 'center' });
+  else doc.font('Helvetica-Bold').fontSize(20).fillColor(THERMAL_INK).text('AgroPlastick', 16, 30, { width: contentWidth, align: 'center' });
   let y = 91;
   dashedLine(doc, y, 16, pageWidth - 16);
   y += 12;
 
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text('PEDIDO', 16, y, { width: contentWidth, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(THERMAL_INK).text('PEDIDO', 16, y, { width: contentWidth, align: 'center' });
   y += 18;
-  doc.font('Helvetica-Bold').fontSize(15).fillColor(BRAND_DARK).text(data.number, 16, y, { width: contentWidth, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(15).fillColor(THERMAL_INK).text(data.number, 16, y, { width: contentWidth, align: 'center' });
   y += 25;
   ticketPair(doc, 'Fecha', data.date, y, contentWidth);
   y += 15;
@@ -398,18 +398,18 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   y += Math.max(18, doc.heightOfString(data.clientName, { width: 124 }));
   ticketPair(doc, 'Documento', data.clientDocument, y, contentWidth);
   y += 17;
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('Direccion', 16, y, { width: contentWidth });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('Direccion', 16, y, { width: contentWidth });
   y += 11;
-  doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.deliveryAddress || 'No registrada', 16, y, { width: contentWidth });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(data.deliveryAddress || 'No registrada', 16, y, { width: contentWidth });
   y += doc.heightOfString(data.deliveryAddress || 'No registrada', { width: contentWidth }) + 4;
   ticketPair(doc, 'Telefono', data.clientPhone || 'No registrado', y, contentWidth);
   y += 15;
   ticketPair(doc, 'Forma de pago', data.paymentMethod, y, contentWidth);
-  y += 19;
+  y += layout.paymentHeight;
   dashedLine(doc, y, 16, pageWidth - 16);
   y += 12;
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('PRODUCTOS', 16, y);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('PRODUCTOS', 16, y);
   y += 14;
   const quantityWidth = 45;
   const unitPriceWidth = 72;
@@ -434,19 +434,18 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
 
   dashedLine(doc, y, 16, pageWidth - 16);
   y += 12;
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text('TOTAL', 16, y);
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(BRAND_DARK).text(formatMoney(data.total), 80, y - 2, { width: 130, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(THERMAL_INK).text('TOTAL', 16, y);
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(THERMAL_INK).text(formatMoney(data.total), 80, y - 2, { width: 130, align: 'right' });
   y += 28;
   dashedLine(doc, y, 16, pageWidth - 16);
   y += 12;
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('OBSERVACIONES', 16, y, { width: contentWidth });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('OBSERVACIONES', 16, y, { width: contentWidth });
   y += 12;
-  doc.roundedRect(16, y, contentWidth, layout.observationsHeight + 10, 3).fillAndStroke('#f8fbf9', LINE);
-  doc.font('Helvetica').fontSize(8).fillColor(INK).text(data.observations || 'Sin observaciones', 21, y + 5, {
+  doc.roundedRect(16, y, contentWidth, layout.observationsHeight + 10, 3).lineWidth(0.8).fillAndStroke('#ffffff', THERMAL_INK);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(data.observations || 'Sin observaciones', 21, y + 5, {
     width: contentWidth - 10,
     height: layout.observationsHeight,
-    ellipsis: true,
   });
   y += layout.observationsHeight + 22;
 
@@ -458,8 +457,8 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   }
   ticketPair(doc, 'Atendido por', data.userName, y, contentWidth);
   y += Math.max(20, doc.heightOfString(data.userName, { width: 124 }));
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(BRAND_DARK).text('Gracias por su pedido', 16, y + 10, { width: contentWidth, align: 'center' });
-  doc.font('Helvetica').fontSize(7).fillColor(MUTED).text('Empaques, amarres y proteccion para el agro', 16, y + 26, {
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(THERMAL_INK).text('Gracias por su pedido', 16, y + 10, { width: contentWidth, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text('Empaques, amarres y proteccion para el agro', 16, y + 26, {
     width: contentWidth,
     align: 'center',
   });
@@ -477,9 +476,13 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
   measureDoc.font('Helvetica').fontSize(8);
   const clientHeight = Math.max(18, measureDoc.heightOfString(data.clientName, { width: 124 }));
   const addressHeight = Math.max(10, measureDoc.heightOfString(data.deliveryAddress || 'No registrada', { width: contentWidth }));
+  const paymentHeight = Math.max(
+    19,
+    measureDoc.font('Helvetica-Bold').fontSize(8).heightOfString(data.paymentMethod || '-', { width: contentWidth - 66 }) + 4,
+  );
   const observationsHeight = Math.max(
     10,
-    measureDoc.heightOfString(data.observations || 'Sin observaciones', { width: contentWidth - 10 }),
+    measureDoc.font('Helvetica-Bold').fontSize(8).heightOfString(data.observations || 'Sin observaciones', { width: contentWidth - 10 }) + 2,
   );
   const userHeight = Math.max(20, measureDoc.heightOfString(data.userName, { width: 124 }));
   const voidReasonHeight = data.voided
@@ -495,7 +498,7 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
   y += 17;
   y += 11 + addressHeight + 4;
   y += 15;
-  y += 19;
+  y += paymentHeight;
   y += 12;
   y += 14;
   y += 20;
@@ -515,6 +518,7 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
   return {
     pageHeight: Math.max(600, Math.ceil(y + 54)),
     descriptionHeights,
+    paymentHeight,
     observationsHeight,
     voidReasonHeight,
   };
@@ -535,11 +539,11 @@ function ticketTableCell(
   } = {},
 ) {
   const header = Boolean(options.header);
-  doc.rect(x, y, width, height).fillAndStroke(header ? PALE_GREEN : '#ffffff', header ? BRAND_GREEN : LINE);
+  doc.rect(x, y, width, height).lineWidth(header ? 1 : 0.8).fillAndStroke('#ffffff', THERMAL_INK);
   doc
-    .font(options.font || (header ? 'Helvetica-Bold' : 'Helvetica'))
+    .font(options.font || 'Helvetica-Bold')
     .fontSize(options.fontSize || 7.5)
-    .fillColor(header ? BRAND_DARK : INK)
+    .fillColor(THERMAL_INK)
     .text(value, x + 4, y + (header ? 7 : 6), {
       width: width - 8,
       height: height - 8,
