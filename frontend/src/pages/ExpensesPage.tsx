@@ -20,7 +20,6 @@ type ExpenseForm = {
   amount: string;
   appliesRetention: boolean;
   retentionPercentage: string;
-  retentionAmount: string;
   expenseDate: string;
   approvedBy: string;
   description: string;
@@ -32,7 +31,6 @@ const emptyForm: ExpenseForm = {
   amount: '',
   appliesRetention: false,
   retentionPercentage: '',
-  retentionAmount: '',
   expenseDate: dateInput(),
   approvedBy: '',
   description: '',
@@ -66,6 +64,13 @@ export function ExpensesPage() {
   const { data: categories = [] } = useQuery({ queryKey: ['expense-categories'], queryFn: expenseCategoriesApi.list });
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin });
   const activeCategories = categories.filter((category) => category.isActive);
+  const calculatedRetentionAmount = useMemo(() => {
+    if (!form.appliesRetention || !form.amount || !form.retentionPercentage) return '';
+    const amount = Number(form.amount);
+    const percentage = Number(form.retentionPercentage);
+    if (!Number.isFinite(amount) || !Number.isFinite(percentage)) return '';
+    return Math.round((amount * percentage / 100 + Number.EPSILON) * 100) / 100;
+  }, [form.amount, form.appliesRetention, form.retentionPercentage]);
 
   const create = useMutation({
     mutationFn: expensesApi.create,
@@ -119,7 +124,6 @@ export function ExpensesPage() {
       amount: Number(form.amount),
       appliesRetention: form.appliesRetention,
       retentionPercentage: form.appliesRetention ? Number(form.retentionPercentage) : undefined,
-      retentionAmount: form.appliesRetention ? Number(form.retentionAmount) : undefined,
       expenseDate: form.expenseDate,
       approvedBy: form.approvedBy,
       description: form.description,
@@ -319,14 +323,14 @@ export function ExpensesPage() {
                 setForm({
                   ...form,
                   appliesRetention: event.target.checked,
-                  ...(!event.target.checked ? { retentionPercentage: '', retentionAmount: '' } : {}),
+                  ...(!event.target.checked ? { retentionPercentage: '' } : {}),
                 })
               }
               className="mt-0.5 h-4 w-4 accent-brand"
             />
             <span>
               <span className="block text-sm font-semibold">Aplica retencion / descuento</span>
-              <span className="mt-0.5 block text-xs text-mute">Activa esta opcion para registrar el porcentaje y el valor aplicado.</span>
+              <span className="mt-0.5 block text-xs text-mute">El valor aplicado se calcula automaticamente sobre el valor del egreso.</span>
             </span>
           </label>
           {form.appliesRetention && (
@@ -345,14 +349,11 @@ export function ExpensesPage() {
               </Field>
               <Field label="Valor aplicado">
                 <Input
-                  required
                   type="number"
-                  min="0.01"
-                  max={form.amount || undefined}
                   step="0.01"
-                  value={form.retentionAmount}
-                  onChange={(event) => setForm({ ...form, retentionAmount: event.target.value })}
-                  placeholder="Valor retenido o descontado"
+                  value={calculatedRetentionAmount}
+                  disabled
+                  placeholder="Se calcula automaticamente"
                 />
               </Field>
             </div>

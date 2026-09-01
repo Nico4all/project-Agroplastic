@@ -25,10 +25,9 @@ export class CreateExpenseDto {
   @Max(100)
   retentionPercentage?: number;
 
-  @ValidateIf((dto: CreateExpenseDto) => dto.appliesRetention)
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
   retentionAmount?: number;
 
   @IsDateString()

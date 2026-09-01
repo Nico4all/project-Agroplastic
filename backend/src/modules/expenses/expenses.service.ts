@@ -53,9 +53,11 @@ export class ExpensesService {
     if (!actor.pointOfSaleId) throw new BadRequestException('Debes tener un punto de venta asignado para registrar egresos');
     const category = await this.prisma.expenseCategory.findFirst({ where: { id: dto.categoryId, isActive: true } });
     if (!category) throw new BadRequestException('Categoria no encontrada o inactiva');
-    if (dto.appliesRetention && (dto.retentionAmount ?? 0) > dto.amount) {
-      throw new BadRequestException('El valor de la retencion o descuento no puede superar el valor del egreso');
-    }
+    const amount = new Prisma.Decimal(dto.amount);
+    const retentionPercentage = dto.appliesRetention ? new Prisma.Decimal(dto.retentionPercentage!) : null;
+    const retentionAmount = retentionPercentage
+      ? amount.mul(retentionPercentage).div(100).toDecimalPlaces(2)
+      : null;
 
     const expense = await this.prisma.$transaction(async (transaction) => {
       const numberedPointOfSale = await transaction.pointOfSale.update({
@@ -74,10 +76,10 @@ export class ExpensesService {
           documentSequence,
           documentNumber: `${numberedPointOfSale.documentPrefix}-${documentSequence}`,
           paidTo: dto.paidTo.trim(),
-          amount: new Prisma.Decimal(dto.amount),
+          amount,
           appliesRetention: dto.appliesRetention,
-          retentionPercentage: dto.appliesRetention ? new Prisma.Decimal(dto.retentionPercentage!) : null,
-          retentionAmount: dto.appliesRetention ? new Prisma.Decimal(dto.retentionAmount!) : null,
+          retentionPercentage,
+          retentionAmount,
           description: dto.description?.trim() || null,
           approvedBy: dto.approvedBy?.trim() || actor.name,
           expenseDate: new Date(dto.expenseDate),
