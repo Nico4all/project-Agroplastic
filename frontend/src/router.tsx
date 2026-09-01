@@ -14,6 +14,7 @@ import { UsersPage } from './pages/UsersPage';
 import { PriceListProductsPage } from './pages/PriceListProductsPage';
 import { SuppliersPage } from './pages/SuppliersPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { PortfolioPage } from './pages/PortfolioPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <AuthPage /> },
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: 'expenses', element: <ExpensesPage /> },
       { path: 'orders', element: <OrdersPage /> },
       { path: 'inventory', element: <InventoryPage /> },
+      { path: 'portfolio', element: <PortfolioPage /> },
       { path: 'products', element: <ProductsPage /> },
       { path: 'price-list', element: <PriceListProductsPage /> },
       { path: 'suppliers', element: <SuppliersPage /> },

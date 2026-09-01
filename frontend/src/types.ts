@@ -18,6 +18,7 @@ export type PointOfSale = {
   nextExpenseNumber?: number;
   nextOrderNumber?: number;
   nextInventoryEntryNumber?: number;
+  nextPortfolioCollectionNumber?: number;
   city?: string | null;
   address?: string | null;
   isActive: boolean;
@@ -250,6 +251,21 @@ export type OrderItem = {
   lineTotal: number;
 };
 
+export type OrderPayment = {
+  id: string;
+  method: OrderPaymentMethod;
+  amount: number;
+};
+
+export type PortfolioCollection = {
+  id: string;
+  documentNumber: string;
+  paymentMethod: PaymentMethod;
+  amount: number;
+  collectionDate: string;
+  description?: string | null;
+};
+
 export type Order = {
   id: string;
   userId: string;
@@ -274,6 +290,49 @@ export type Order = {
   pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code' | 'documentPrefix'> | null;
   client?: Pick<Client, 'id' | 'fullName' | 'identityDocument'>;
   items: OrderItem[];
+  payments: OrderPayment[];
+  collections?: PortfolioCollection[];
+  creditAmount: number;
+  collectedAmount: number;
+  balanceDue: number;
+};
+
+export type PortfolioOrder = {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientDocument: string;
+  documentNumber: string;
+  pointOfSaleId?: string | null;
+  pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'> | null;
+  createdAt: string;
+  invoicedAt?: string | null;
+  totalAmount: number;
+  creditAmount: number;
+  collectedAmount: number;
+  balanceDue: number;
+  collections: PortfolioCollection[];
+};
+
+export type PortfolioClient = {
+  clientId: string;
+  clientName: string;
+  clientDocument: string;
+  totalCredit: number;
+  collectedAmount: number;
+  balanceDue: number;
+  orders: PortfolioOrder[];
+};
+
+export type PortfolioResult = {
+  summary: {
+    clients: number;
+    orders: number;
+    totalCredit: number;
+    collectedAmount: number;
+    balanceDue: number;
+  };
+  clients: PortfolioClient[];
 };
 
 export type PaginatedResult<T> = {

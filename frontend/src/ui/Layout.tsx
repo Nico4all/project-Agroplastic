@@ -13,6 +13,7 @@ import {
   Store,
   Users,
   UserSquare2,
+  WalletCards,
   X,
 } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -46,6 +47,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     { to: '/orders', label: 'Pedidos', icon: ShoppingCart },
     { to: '/inventory', label: 'Inventario', icon: PackagePlus },
     { to: '/clients', label: 'Clientes', icon: UserSquare2 },
+    { to: '/portfolio', label: 'Cartera', icon: WalletCards },
     { to: '/products', label: 'Productos pedidos', icon: Package },
   ], []);
   const catalogNav = useMemo(() => [

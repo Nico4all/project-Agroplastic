@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { OrderPaymentMethod } from '@prisma/client';
-import { ArrayMinSize, IsArray, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class CreateOrderItemDto {
   @IsString()
@@ -17,6 +17,16 @@ export class CreateOrderItemDto {
   unitPrice: number;
 }
 
+export class CreateOrderPaymentDto {
+  @IsEnum(OrderPaymentMethod)
+  method: OrderPaymentMethod;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  amount: number;
+}
+
 export class CreateOrderDto {
   @IsString()
   clientId: string;
@@ -31,9 +41,6 @@ export class CreateOrderDto {
   @MaxLength(50)
   clientPhone: string;
 
-  @IsEnum(OrderPaymentMethod)
-  paymentMethod: OrderPaymentMethod;
-
   @IsOptional()
   @IsString()
   @MaxLength(1000)
@@ -44,4 +51,11 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => CreateOrderPaymentDto)
+  payments: CreateOrderPaymentDto[];
 }

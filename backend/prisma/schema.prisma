@@ -104,6 +104,7 @@ model User {
   voidedOrders       Order[]                 @relation("OrderVoidUser")
   inventoryEntries   InventoryEntry[]
   inventoryMovements InventoryMovement[]
+  portfolioCollections PortfolioCollection[]
   voidedIncomes      Income[]                @relation("IncomeVoidUser")
   voidedExpenses     Expense[]               @relation("ExpenseVoidUser")
   refreshTokens      RefreshToken[]
@@ -123,6 +124,7 @@ model PointOfSale {
   nextExpenseNumber        Int                 @default(1) @map("next_expense_number")
   nextOrderNumber          Int                 @default(1) @map("next_order_number")
   nextInventoryEntryNumber Int                 @default(1) @map("next_inventory_entry_number")
+  nextPortfolioCollectionNumber Int            @default(1) @map("next_portfolio_collection_number")
   city                     String?
   address                  String?             @db.VarChar(300)
   isActive                 Boolean             @default(true) @map("is_active")
@@ -136,6 +138,7 @@ model PointOfSale {
   inventoryStocks          InventoryStock[]
   inventoryEntries         InventoryEntry[]
   inventoryMovements       InventoryMovement[]
+  portfolioCollections     PortfolioCollection[]
 
   @@index([isActive])
   @@map("points_of_sale")
@@ -362,6 +365,8 @@ model Order {
   pointOfSale        PointOfSale?        @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   client             Client              @relation(fields: [clientId], references: [id])
   items              OrderItem[]
+  payments           OrderPayment[]
+  collections        PortfolioCollection[]
   inventoryMovements InventoryMovement[]
 
   @@index([userId])
@@ -387,6 +392,41 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
   @@map("order_items")
+}
+
+model OrderPayment {
+  id        String             @id @default(uuid())
+  orderId   String             @map("order_id")
+  method    OrderPaymentMethod
+  amount    Decimal            @db.Decimal(14, 2)
+  createdAt DateTime           @default(now()) @map("created_at")
+  order     Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, method])
+  @@index([method])
+  @@map("order_payments")
+}
+
+model PortfolioCollection {
+  id               String        @id @default(uuid())
+  orderId          String        @map("order_id")
+  userId           String        @map("user_id")
+  pointOfSaleId    String        @map("point_of_sale_id")
+  documentSequence Int           @map("document_sequence")
+  documentNumber   String        @unique @map("document_number")
+  paymentMethod    PaymentMethod @map("payment_method")
+  amount           Decimal       @db.Decimal(14, 2)
+  collectionDate   DateTime      @map("collection_date")
+  description      String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  user             User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  pointOfSale      PointOfSale   @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, collectionDate])
+  @@index([userId])
+  @@index([pointOfSaleId, documentSequence])
+  @@map("portfolio_collections")
 }
 
 model InventoryStock {

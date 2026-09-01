@@ -35,7 +35,7 @@ type IncomeForm = {
 
 const emptyForm: IncomeForm = {
   clientId: '',
-  type: 'RECEIVABLE_PAYMENT',
+  type: 'ADVANCE',
   paymentMethod: 'CASH',
   amount: '',
   incomeDate: dateInput(),
@@ -157,7 +157,7 @@ export function IncomesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Ingresos</h1>
-          <p className="text-sm text-mute">Anticipos y pagos de cartera por cliente.</p>
+          <p className="text-sm text-mute">Anticipos registrados por cliente. Los recaudos se manejan desde Cartera.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => exportFile('excel')}>
@@ -184,7 +184,7 @@ export function IncomesPage() {
             <Select value={filters.type} onChange={(event) => setFilter('type', event.target.value)}>
               <option value="">Todos</option>
               <option value="ADVANCE">Anticipo</option>
-              <option value="RECEIVABLE_PAYMENT">Pago a cartera</option>
+              <option value="RECEIVABLE_PAYMENT">Pago a cartera (histórico)</option>
             </Select>
           </Field>
           <Field label="Ingreso">
@@ -321,7 +321,6 @@ export function IncomesPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Tipo">
               <Select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as IncomeType })}>
-                <option value="RECEIVABLE_PAYMENT">Pago a cartera</option>
                 <option value="ADVANCE">Anticipo</option>
               </Select>
             </Field>

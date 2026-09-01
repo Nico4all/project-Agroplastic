@@ -76,6 +76,19 @@ export class OrdersService {
       };
     });
     const totalAmount = items.reduce((total, item) => total.add(item.lineTotal), new Prisma.Decimal(0));
+    if (new Set(dto.payments.map((payment) => payment.method)).size !== dto.payments.length) {
+      throw new BadRequestException('No repitas la misma forma de pago');
+    }
+    const payments = dto.payments.map((payment) => ({
+      method: payment.method,
+      amount: new Prisma.Decimal(payment.amount),
+    }));
+    const paidTotal = payments.reduce((total, payment) => total.add(payment.amount), new Prisma.Decimal(0));
+    if (!paidTotal.equals(totalAmount)) {
+      throw new BadRequestException(
+        `La distribución de pagos debe ser igual al total del pedido (${totalAmount.toFixed(2)})`,
+      );
+    }
 
     const order = await this.prisma.$transaction(async (transaction) => {
       const numberedPointOfSale = await transaction.pointOfSale.update({
@@ -98,12 +111,13 @@ export class OrdersService {
           clientDocument: client.identityDocument,
           deliveryAddress: dto.deliveryAddress.trim(),
           clientPhone: dto.clientPhone.trim(),
-          paymentMethod: dto.paymentMethod,
+          paymentMethod: payments.length === 1 ? payments[0].method : null,
           observations: dto.observations?.trim() || null,
           totalAmount,
           status: RecordStatus.ACTIVE,
           inventoryAppliedAt: now,
           items: { create: items },
+          payments: { create: payments },
         },
         include: this.includeRelations(),
       });
@@ -162,6 +176,9 @@ export class OrdersService {
     const actor = await this.users.getActiveUser(userId);
     const current = await this.findAccessible(actor, id, true);
     if (current.status === RecordStatus.VOID) return this.serialize(current);
+    if (current.collections.length) {
+      throw new BadRequestException('No puedes anular un pedido que ya tiene recaudos de cartera activos');
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const changed = await tx.order.updateMany({
@@ -215,14 +232,9 @@ export class OrdersService {
       clientDocument: order.clientDocument,
       deliveryAddress: order.deliveryAddress || '',
       clientPhone: order.clientPhone || '',
-      paymentMethod:
-        order.paymentMethod === 'BANK'
-          ? 'Banco'
-          : order.paymentMethod === 'CASH'
-            ? 'Efectivo'
-            : order.paymentMethod === 'CREDIT'
-              ? 'Credito'
-              : 'No registrado',
+      paymentMethod: order.payments.length
+        ? order.payments.map((payment: any) => `${this.paymentMethodLabel(payment.method)} ${this.formatMoney(decimalToNumber(payment.amount))}`).join(' / ')
+        : 'No registrado',
       observations: order.observations || '',
       userName: order.user.name,
       invoiced: Boolean(order.invoicedAt),
@@ -289,13 +301,29 @@ export class OrdersService {
       client: { select: { id: true, fullName: true, identityDocument: true } },
       voidedBy: { select: { id: true, name: true, username: true } },
       items: { orderBy: { productDescription: 'asc' as const } },
+      payments: { orderBy: { createdAt: 'asc' as const } },
+      collections: {
+        select: { id: true, documentNumber: true, paymentMethod: true, amount: true, collectionDate: true, createdAt: true },
+        orderBy: { collectionDate: 'asc' as const },
+      },
     };
   }
 
   private serialize(order: any) {
+    const payments = order.payments.map((payment: any) => ({ ...payment, amount: decimalToNumber(payment.amount) }));
+    const collections = order.collections.map((collection: any) => ({ ...collection, amount: decimalToNumber(collection.amount) }));
+    const creditAmount = payments
+      .filter((payment: any) => payment.method === 'CREDIT')
+      .reduce((total: number, payment: any) => total + payment.amount, 0);
+    const collectedAmount = collections.reduce((total: number, collection: any) => total + collection.amount, 0);
     return {
       ...order,
       totalAmount: decimalToNumber(order.totalAmount),
+      payments,
+      collections,
+      creditAmount,
+      collectedAmount,
+      balanceDue: order.status === RecordStatus.ACTIVE ? Math.max(0, creditAmount - collectedAmount) : 0,
       items: order.items.map((item: any) => ({
         ...item,
         quantity: decimalToNumber(item.quantity),
@@ -303,6 +331,14 @@ export class OrdersService {
         lineTotal: decimalToNumber(item.lineTotal),
       })),
     };
+  }
+
+  private paymentMethodLabel(value: string) {
+    return value === 'CASH' ? 'Efectivo' : value === 'BANK' ? 'Banco' : 'Crédito';
+  }
+
+  private formatMoney(value: number) {
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value);
   }
 
   private endOfDay(value: string) {

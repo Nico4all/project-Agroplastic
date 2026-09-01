@@ -10,6 +10,7 @@ import {
   PaginatedResult,
   Order,
   OrderPaymentMethod,
+  PortfolioResult,
   PointOfSale,
   Product,
   Transaction,
@@ -174,14 +175,25 @@ export const ordersApi = {
     clientId: string;
     deliveryAddress: string;
     clientPhone: string;
-    paymentMethod: OrderPaymentMethod;
     observations?: string;
     items: Array<{ productId: string; quantity: number; unitPrice: number }>;
+    payments: Array<{ method: OrderPaymentMethod; amount: number }>;
   }) =>
     (await api.post<Order>('/orders', payload)).data,
   setInvoiced: async (id: string, isInvoiced: boolean) => (await api.patch<Order>(`/orders/${id}/invoiced`, { isInvoiced })).data,
   void: async (id: string, reason?: string) => (await api.patch<Order>(`/orders/${id}/void`, { reason })).data,
   ticketPdf: async (id: string) => (await api.get(`/orders/${id}/pdf`, { responseType: 'blob' })).data as Blob,
+};
+
+export const portfolioApi = {
+  list: async (params?: Record<string, unknown>) => (await api.get<PortfolioResult>('/portfolio', { params })).data,
+  collect: async (payload: {
+    orderId: string;
+    paymentMethod: 'CASH' | 'BANK';
+    amount: number;
+    collectionDate: string;
+    description?: string;
+  }) => (await api.post('/portfolio/collections', payload)).data,
 };
 
 export const clientsApi = {

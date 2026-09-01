@@ -52,6 +52,9 @@ export class IncomesService {
 
   async create(userId: string, dto: CreateIncomeDto) {
     const actor = await this.users.getActiveUser(userId);
+    if (dto.type !== 'ADVANCE') {
+      throw new BadRequestException('Los recaudos deben registrarse desde el módulo de Cartera');
+    }
     if (!actor.pointOfSaleId) throw new BadRequestException('Debes tener un punto de venta asignado para registrar ingresos');
     const client = await this.clients.findAccessible(actor, dto.clientId);
     if (!client.isActive) throw new BadRequestException('El cliente esta inactivo');

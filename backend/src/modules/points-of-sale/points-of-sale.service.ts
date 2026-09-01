@@ -15,6 +15,7 @@ const pointOfSaleSelect = {
   nextExpenseNumber: true,
   nextOrderNumber: true,
   nextInventoryEntryNumber: true,
+  nextPortfolioCollectionNumber: true,
   city: true,
   address: true,
   isActive: true,
@@ -121,6 +122,10 @@ export class PointsOfSaleService {
               current.nextInventoryEntryNumber,
               historicalCounters.nextInventoryEntryNumber,
             ),
+            nextPortfolioCollectionNumber: Math.max(
+              current.nextPortfolioCollectionNumber,
+              historicalCounters.nextPortfolioCollectionNumber,
+            ),
           } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         },
@@ -160,12 +165,16 @@ export class PointsOfSaleService {
 
   private async nextCountersForPrefix(documentPrefix: string) {
     const documentNumber = { startsWith: `${documentPrefix}-` };
-    const [income, expense, order, inventoryEntry] = await Promise.all([
+    const [income, expense, order, inventoryEntry, portfolioCollection] = await Promise.all([
       this.prisma.income.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.expense.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.order.aggregate({ where: { documentNumber }, _max: { documentSequence: true } }),
       this.prisma.inventoryEntry.aggregate({
         where: { documentNumber: { startsWith: `${documentPrefix}-EM-` } },
+        _max: { documentSequence: true },
+      }),
+      this.prisma.portfolioCollection.aggregate({
+        where: { documentNumber: { startsWith: `${documentPrefix}-RC-` } },
         _max: { documentSequence: true },
       }),
     ]);
@@ -174,6 +183,7 @@ export class PointsOfSaleService {
       nextExpenseNumber: (expense._max.documentSequence ?? 0) + 1,
       nextOrderNumber: (order._max.documentSequence ?? 0) + 1,
       nextInventoryEntryNumber: (inventoryEntry._max.documentSequence ?? 0) + 1,
+      nextPortfolioCollectionNumber: (portfolioCollection._max.documentSequence ?? 0) + 1,
     };
   }
 }

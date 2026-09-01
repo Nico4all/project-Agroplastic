@@ -10,7 +10,9 @@ import { dateInput, money } from '../utils/format';
 import { isAdminRole } from '../utils/roles';
 
 type OrderLineForm = { productId: string; quantity: string; unitPrice: string };
+type PaymentLineForm = { method: OrderPaymentMethod; amount: string };
 const emptyLine = (): OrderLineForm => ({ productId: '', quantity: '1', unitPrice: '' });
+const emptyPayment = (): PaymentLineForm => ({ method: 'CASH', amount: '' });
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -29,7 +31,7 @@ export function OrdersPage() {
   const [clientId, setClientId] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [clientPhone, setClientPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>('CASH');
+  const [paymentLines, setPaymentLines] = useState<PaymentLineForm[]>([emptyPayment()]);
   const [observations, setObservations] = useState('');
   const [lines, setLines] = useState<OrderLineForm[]>([emptyLine()]);
   const [error, setError] = useState('');
@@ -59,6 +61,8 @@ export function OrdersPage() {
     label: `${product.description} - disponible ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
   const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
+  const paymentTotal = paymentLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const paymentDifference = Math.round((total - paymentTotal) * 100) / 100;
 
   const create = useMutation({
     mutationFn: ordersApi.create,
@@ -66,6 +70,7 @@ export function OrdersPage() {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
       toast('Pedido registrado');
       setModalOpen(false);
     },
@@ -103,7 +108,7 @@ export function OrdersPage() {
     setClientId('');
     setDeliveryAddress('');
     setClientPhone('');
-    setPaymentMethod('CASH');
+    setPaymentLines([emptyPayment()]);
     setObservations('');
     setLines([emptyLine()]);
     setError('');
@@ -112,6 +117,16 @@ export function OrdersPage() {
 
   const updateLine = (index: number, patch: Partial<OrderLineForm>) => {
     setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
+  };
+
+  const updatePaymentLine = (index: number, patch: Partial<PaymentLineForm>) => {
+    setPaymentLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
+  };
+
+  const addPaymentLine = () => {
+    const used = new Set(paymentLines.map((line) => line.method));
+    const method = (['CASH', 'BANK', 'CREDIT'] as OrderPaymentMethod[]).find((item) => !used.has(item));
+    if (method) setPaymentLines((current) => [...current, { method, amount: '' }]);
   };
 
   async function openTicket(order: Order) {
@@ -142,17 +157,31 @@ export function OrdersPage() {
       setError(`Inventario insuficiente para ${product?.description || 'el producto seleccionado'}`);
       return;
     }
+    if (new Set(paymentLines.map((line) => line.method)).size !== paymentLines.length) {
+      setError('No repitas la misma forma de pago');
+      return;
+    }
+    if (paymentLines.some((line) => Number(line.amount) <= 0)) {
+      setError('Ingresa un valor mayor a cero para cada forma de pago');
+      return;
+    }
+    if (Math.abs(paymentDifference) > 0.009) {
+      setError(paymentDifference > 0
+        ? `Falta distribuir ${money(paymentDifference)} entre las formas de pago`
+        : `La distribución excede el total por ${money(Math.abs(paymentDifference))}`);
+      return;
+    }
     await create.mutateAsync({
       clientId,
       deliveryAddress,
       clientPhone,
-      paymentMethod,
       observations,
       items: lines.map((line) => ({
         productId: line.productId,
         quantity: Number(line.quantity),
         unitPrice: Number(line.unitPrice),
       })),
+      payments: paymentLines.map((line) => ({ method: line.method, amount: Number(line.amount) })),
     });
   }
 
@@ -293,14 +322,6 @@ export function OrdersPage() {
             </Field>
           </div>
 
-          <Field label="Forma de pago">
-            <Select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as OrderPaymentMethod)}>
-              <option value="CASH">Efectivo</option>
-              <option value="BANK">Banco</option>
-              <option value="CREDIT">Credito</option>
-            </Select>
-          </Field>
-
           <Field label="Observaciones" hint="Opcional. Apareceran en la tirilla del pedido.">
             <textarea
               className="input min-h-24 resize-y"
@@ -339,6 +360,19 @@ export function OrdersPage() {
           <div className="flex items-center justify-between rounded-lg bg-brand-soft px-4 py-3">
             <span className="text-sm font-semibold text-brand-dark">Total pedido</span>
             <span className="money text-lg font-bold text-brand-dark">{money(total)}</span>
+          </div>
+          <div className="space-y-3 rounded-xl border border-line p-4">
+            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold">Formas de pago</p><p className="text-xs text-mute">Distribuye el total entre efectivo, banco y/o crédito.</p></div><Button variant="secondary" className="px-3 py-1.5" onClick={addPaymentLine} disabled={paymentLines.length >= 3}><Plus className="h-4 w-4" /> Agregar pago</Button></div>
+            {paymentLines.map((payment, index) => {
+              const otherPayments = paymentLines.reduce((sum, line, lineIndex) => sum + (lineIndex === index ? 0 : Number(line.amount || 0)), 0);
+              const availableMethods = new Set(paymentLines.filter((_, lineIndex) => lineIndex !== index).map((line) => line.method));
+              return <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <Field label={`Forma ${index + 1}`}><Select value={payment.method} onChange={(event) => updatePaymentLine(index, { method: event.target.value as OrderPaymentMethod })}><option value="CASH" disabled={availableMethods.has('CASH')}>Efectivo</option><option value="BANK" disabled={availableMethods.has('BANK')}>Banco</option><option value="CREDIT" disabled={availableMethods.has('CREDIT')}>Crédito / cartera</option></Select></Field>
+                <Field label="Valor" hint="Puedes asignar automáticamente el saldo pendiente."><div className="flex gap-2"><Input required type="number" min="0.01" step="0.01" value={payment.amount} onChange={(event) => updatePaymentLine(index, { amount: event.target.value })} /><Button variant="ghost" className="shrink-0 px-2" title="Usar valor restante" onClick={() => updatePaymentLine(index, { amount: Math.max(0, total - otherPayments).toFixed(2) })}>Restante</Button></div></Field>
+                <div className="flex items-end"><Button variant="ghost" className="px-2 text-expense" disabled={paymentLines.length === 1} onClick={() => setPaymentLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div>
+              </div>;
+            })}
+            <div className="flex flex-wrap justify-between gap-2 border-t border-line pt-3 text-sm"><span>Distribuido: <strong>{money(paymentTotal)}</strong></span><span className={Math.abs(paymentDifference) > 0.009 ? 'font-bold text-expense' : 'font-bold text-brand-dark'}>{paymentDifference > 0 ? `Pendiente: ${money(paymentDifference)}` : paymentDifference < 0 ? `Excede: ${money(Math.abs(paymentDifference))}` : 'Pago completo'}</span></div>
           </div>
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
@@ -382,16 +416,8 @@ export function OrdersPage() {
                 <p className="mt-1 font-semibold">{viewingOrder.clientPhone || 'No registrado'}</p>
               </div>
               <div className="rounded-lg bg-paper p-3">
-                <p className="text-xs font-semibold uppercase text-mute">Forma de pago</p>
-                <p className="mt-1 font-semibold">
-                  {viewingOrder.paymentMethod === 'BANK'
-                    ? 'Banco'
-                    : viewingOrder.paymentMethod === 'CASH'
-                      ? 'Efectivo'
-                      : viewingOrder.paymentMethod === 'CREDIT'
-                        ? 'Credito'
-                        : 'No registrada'}
-                </p>
+                <p className="text-xs font-semibold uppercase text-mute">Formas de pago</p>
+                <div className="mt-1 space-y-1">{viewingOrder.payments?.length ? viewingOrder.payments.map((payment) => <p key={payment.id} className="flex justify-between gap-2 font-semibold"><span>{payment.method === 'CASH' ? 'Efectivo' : payment.method === 'BANK' ? 'Banco' : 'Crédito'}</span><span className="money">{money(payment.amount)}</span></p>) : <p>No registradas</p>}{viewingOrder.creditAmount > 0 && <p className="flex justify-between gap-2 border-t border-line pt-1 text-expense"><span>Saldo cartera</span><strong className="money">{money(viewingOrder.balanceDue)}</strong></p>}</div>
               </div>
               <div className="rounded-lg bg-paper p-3 sm:col-span-2 lg:col-span-4">
                 <p className="text-xs font-semibold uppercase text-mute">Observaciones</p>
