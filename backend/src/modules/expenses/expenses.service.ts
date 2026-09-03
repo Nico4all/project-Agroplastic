@@ -81,7 +81,7 @@ export class ExpensesService {
           retentionPercentage,
           retentionAmount,
           description: dto.description?.trim() || null,
-          approvedBy: dto.approvedBy?.trim() || actor.name,
+          approvedBy: dto.approvedBy.trim(),
           expenseDate: new Date(dto.expenseDate),
         },
         include: this.includeRelations(),
@@ -146,7 +146,7 @@ export class ExpensesService {
         'Valor total',
         'Estado',
         'Causacion',
-        'Aprobado por',
+        'Elaborado por',
         'Descripcion',
       ],
       rows.map((row) => {
@@ -202,7 +202,7 @@ export class ExpensesService {
         { label: 'Total', width: 72, align: 'right' },
         { label: 'Estado', width: 50, align: 'center' },
         { label: 'Causacion', width: 60, align: 'center' },
-        { label: 'Aprobado', width: 75 },
+        { label: 'Elaborado', width: 75 },
       ],
       rows.map((row) => {
         const amount = decimalToNumber(row.amount);
@@ -254,8 +254,7 @@ export class ExpensesService {
             ]
           : []),
       ],
-      preparedBy: expense.user.name,
-      approvedBy: expense.approvedBy || expense.user.name,
+      preparedBy: expense.approvedBy || expense.user.name,
       voidReason: expense.status === RecordStatus.VOID ? expense.voidReason || 'Sin motivo' : undefined,
     });
   }

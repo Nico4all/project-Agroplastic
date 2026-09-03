@@ -22,7 +22,6 @@ export type CashReceiptData = {
   details: Array<{ label: string; value: string }>;
   paymentMethod?: string;
   preparedBy: string;
-  approvedBy?: string;
   voidReason?: string;
 };
 
@@ -45,6 +44,21 @@ export type OrderTicketData = {
     unitPrice: number;
     lineTotal: number;
   }>;
+  total: number;
+};
+
+export type OrderMovementReportRow = {
+  orderNumber: string;
+  date: string;
+  clientDocument: string;
+  clientName: string;
+  pointOfSale: string;
+  amount: number;
+};
+
+export type OrderMovementReportSection = {
+  label: string;
+  rows: OrderMovementReportRow[];
   total: number;
 };
 
@@ -217,6 +231,147 @@ export async function buildListPdf(
   return done;
 }
 
+export async function buildOrderMovementsPdf(
+  fromDate: string,
+  toDate: string,
+  sections: OrderMovementReportSection[],
+) {
+  const { doc, done } = createDocument({ size: 'A4', layout: 'landscape', margin: 36, bufferPages: true });
+  const left = 36;
+  const tableWidth = 770;
+  const columns: PdfTableColumn[] = [
+    { label: 'PEDIDO', width: 88 },
+    { label: 'FECHA', width: 70, align: 'center' },
+    { label: 'DOCUMENTO', width: 105 },
+    { label: 'CLIENTE', width: 225 },
+    { label: 'PUNTO DE VENTA', width: 162 },
+    { label: 'VALOR', width: 120, align: 'right' },
+  ];
+  let y = 0;
+
+  const drawPageHeader = () => {
+    const logo = getLogoBuffer();
+    if (logo) doc.image(logo, left, 23, { fit: [210, 54], valign: 'center' });
+    else doc.font('Helvetica-Bold').fontSize(22).fillColor(BRAND_GREEN).text('AgroPlastick', left, 34);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(18)
+      .fillColor(BRAND_DARK)
+      .text('MOVIMIENTOS DE PEDIDOS', 270, 28, { width: tableWidth - 234, align: 'right' });
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(11)
+      .fillColor(INK)
+      .text(`De: ${fromDate}  A: ${toDate}`, 270, 53, { width: tableWidth - 234, align: 'right' });
+    doc
+      .font('Helvetica')
+      .fontSize(7.5)
+      .fillColor(MUTED)
+      .text(
+        `Procesado: ${new Intl.DateTimeFormat('es-CO', {
+          dateStyle: 'medium',
+          timeStyle: 'medium',
+          timeZone: 'America/Bogota',
+        }).format(new Date())}`,
+        left,
+        84,
+        { width: tableWidth },
+      );
+    doc.moveTo(left, 101).lineTo(left + tableWidth, 101).lineWidth(1.2).strokeColor(BRAND_GREEN).stroke();
+    y = 113;
+  };
+
+  const addPage = () => {
+    doc.addPage();
+    drawPageHeader();
+  };
+
+  const ensureSpace = (height: number) => {
+    if (y + height > doc.page.height - 56) addPage();
+  };
+
+  const drawColumnHeader = () => {
+    let x = left;
+    columns.forEach((column) => {
+      doc.rect(x, y, column.width, 22).fillAndStroke(PALE_GREEN, BRAND_DARK);
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor(BRAND_DARK).text(column.label, x + 5, y + 7, {
+        width: column.width - 10,
+        align: column.align || 'left',
+        lineBreak: false,
+      });
+      x += column.width;
+    });
+    y += 22;
+  };
+
+  drawPageHeader();
+
+  sections.forEach((section) => {
+    ensureSpace(72);
+    doc.rect(left, y, tableWidth, 24).fill(BRAND_DARK);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(section.label.toLocaleUpperCase('es-CO'), left + 8, y + 8, {
+      width: tableWidth - 16,
+    });
+    y += 24;
+    drawColumnHeader();
+
+    if (!section.rows.length) {
+      doc.rect(left, y, tableWidth, 28).strokeColor(LINE).stroke();
+      doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MUTED).text('Sin movimientos en este periodo.', left, y + 9, {
+        width: tableWidth,
+        align: 'center',
+      });
+      y += 28;
+    }
+
+    section.rows.forEach((row, rowIndex) => {
+      doc.font('Helvetica').fontSize(7.5);
+      const values = [row.orderNumber, row.date, row.clientDocument, row.clientName, row.pointOfSale, formatMoney(row.amount)];
+      const rowHeight = Math.max(
+        23,
+        ...values.map((value, index) => doc.heightOfString(value, { width: columns[index].width - 10 })),
+      ) + 8;
+      if (y + rowHeight > doc.page.height - 80) {
+        addPage();
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(BRAND_DARK).text(`${section.label} (continuacion)`, left, y, {
+          width: tableWidth,
+        });
+        y += 17;
+        drawColumnHeader();
+      }
+
+      let x = left;
+      values.forEach((value, columnIndex) => {
+        if (rowIndex % 2 === 1) doc.rect(x, y, columns[columnIndex].width, rowHeight).fill('#f8fbf9');
+        doc.rect(x, y, columns[columnIndex].width, rowHeight).lineWidth(0.5).strokeColor(LINE).stroke();
+        doc.font('Helvetica').fontSize(7.5).fillColor(INK).text(value, x + 5, y + 6, {
+          width: columns[columnIndex].width - 10,
+          height: rowHeight - 8,
+          align: columns[columnIndex].align || 'left',
+          ellipsis: true,
+        });
+        x += columns[columnIndex].width;
+      });
+      y += rowHeight;
+    });
+
+    ensureSpace(29);
+    doc.rect(left, y, tableWidth, 26).fillAndStroke(PALE_GREEN, BRAND_DARK);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(BRAND_DARK).text(`Total ${section.label}`, left + 8, y + 8, {
+      width: tableWidth - 144,
+    });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(BRAND_DARK).text(formatMoney(section.total), left + tableWidth - 132, y + 8, {
+      width: 124,
+      align: 'right',
+    });
+    y += 38;
+  });
+
+  addPageNumbers(doc);
+  doc.end();
+  return done;
+}
+
 export async function buildCashReceiptPdf(data: CashReceiptData) {
   const pageWidth = 226.77;
   const layout = measureCashReceipt(data, pageWidth);
@@ -292,22 +447,27 @@ export async function buildCashReceiptPdf(data: CashReceiptData) {
   dashedLine(doc, y, left, pageWidth - left);
   y += 12;
   ticketPair(doc, 'Elaborado por', data.preparedBy, y, width);
-  y += layout.preparedHeight + 27;
+  y += layout.preparedHeight + (data.kind === 'expense' ? 42 : 27);
   doc.moveTo(left, y).lineTo(pageWidth - left, y).lineWidth(1).strokeColor(THERMAL_INK).stroke();
   doc
     .font('Helvetica-Bold')
     .fontSize(7.5)
     .fillColor(THERMAL_INK)
-    .text(data.kind === 'income' ? 'RECIBIDO DE / FIRMA' : 'APROBADO POR', left, y + 7, { width, align: 'center' });
-  if (data.approvedBy) {
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(data.approvedBy, left, y - 14, { width, align: 'center' });
+    .text(data.kind === 'income' ? 'RECIBIDO DE / FIRMA' : 'RECIBE CONFORME', left, y + 7, { width, align: 'center' });
+  if (data.kind === 'expense') {
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text('NOMBRE Y CÉDULA', left, y + 18, {
+      width,
+      align: 'center',
+    });
+    y += 45;
+  } else {
+    y += 35;
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(THERMAL_INK).text('AgroPlastick', left, y + 8, { width, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text('Empaques, amarres y proteccion para el agro', left, y + 22, {
+      width,
+      align: 'center',
+    });
   }
-  y += 35;
-  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(THERMAL_INK).text('AgroPlastick', left, y + 8, { width, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text('Empaques, amarres y proteccion para el agro', left, y + 22, {
-    width,
-    align: 'center',
-  });
 
   if (data.voidReason) {
     doc.save();
@@ -358,9 +518,9 @@ function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
   y += paymentHeight;
   if (data.voidReason) y += 12 + voidReasonHeight + 22;
   y += 12;
-  y += preparedHeight + 27;
-  y += 35;
-  y += 42;
+  y += preparedHeight + (data.kind === 'expense' ? 42 : 27);
+  y += data.kind === 'expense' ? 45 : 35;
+  if (data.kind === 'income') y += 42;
 
   measureDoc.end();
   return {

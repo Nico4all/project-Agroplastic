@@ -33,10 +33,10 @@ export class CreateExpenseDto {
   @IsDateString()
   expenseDate: string;
 
-  @IsOptional()
   @IsString()
+  @MinLength(2)
   @MaxLength(120)
-  approvedBy?: string;
+  approvedBy: string;
 
   @IsOptional()
   @IsString()

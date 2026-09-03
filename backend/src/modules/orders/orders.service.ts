@@ -1,7 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryMovementType, Prisma, RecordStatus, User } from '@prisma/client';
+import { InventoryMovementType, OrderPaymentMethod, Prisma, RecordStatus, User } from '@prisma/client';
+import { Workbook } from 'exceljs';
 import { decimalToNumber } from '../../common/helpers/money';
-import { buildOrderTicketPdf, formatDate } from '../../common/helpers/reports';
+import {
+  buildOrderMovementsPdf,
+  buildOrderTicketPdf,
+  formatDate,
+  OrderMovementReportSection,
+} from '../../common/helpers/reports';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isAdminRole } from '../../common/helpers/roles';
@@ -258,6 +264,197 @@ export class OrdersService {
     });
   }
 
+  async exportMovementsPdf(userId: string, query: QueryOrdersDto) {
+    const report = await this.getMovementReport(userId, query);
+    const buffer = await buildOrderMovementsPdf(report.fromDate, report.toDate, report.sections);
+    return {
+      buffer,
+      filename: `Movimientos pedidos - ${report.fromDate} a ${report.toDate}.pdf`,
+    };
+  }
+
+  async exportMovementsExcel(userId: string, query: QueryOrdersDto) {
+    const report = await this.getMovementReport(userId, query);
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet('Movimientos', {
+      views: [{ state: 'frozen', ySplit: 7, showGridLines: false }],
+      pageSetup: {
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+      },
+    });
+    const generatedAt = new Intl.DateTimeFormat('es-CO', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: 'America/Bogota',
+    }).format(new Date());
+
+    workbook.creator = 'AgroPlastick';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+    workbook.title = `Movimientos de pedidos - ${report.fromDate} a ${report.toDate}`;
+    workbook.subject = 'Movimientos de pedidos separados por efectivo, banco y credito';
+    sheet.columns = [
+      { key: 'orderNumber', width: 18 },
+      { key: 'date', width: 15 },
+      { key: 'clientDocument', width: 20 },
+      { key: 'clientName', width: 46 },
+      { key: 'pointOfSale', width: 26 },
+      { key: 'amount', width: 20 },
+    ];
+
+    sheet.mergeCells('A1:F1');
+    sheet.mergeCells('A2:F2');
+    sheet.mergeCells('A3:F3');
+    sheet.getCell('A1').value = 'MOVIMIENTOS DE PEDIDOS';
+    sheet.getCell('A2').value = `De: ${report.fromDate}  A: ${report.toDate}`;
+    sheet.getCell('A3').value = `Procesado: ${generatedAt}`;
+    ['A1', 'A2'].forEach((address, index) => {
+      const cell = sheet.getCell(address);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF009846' } };
+      cell.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' }, size: index === 0 ? 17 : 12 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    sheet.getCell('A3').font = { name: 'Arial', italic: true, color: { argb: 'FF5F6F65' }, size: 9 };
+    sheet.getCell('A3').alignment = { horizontal: 'right', vertical: 'middle' };
+    sheet.getRow(1).height = 28;
+    sheet.getRow(2).height = 22;
+    sheet.getRow(3).height = 20;
+
+    const summaryCards = [
+      { label: 'MOVIMIENTOS', from: 1, to: 2 },
+      { label: 'EFECTIVO', from: 3, to: 3 },
+      { label: 'BANCO', from: 4, to: 4 },
+      { label: 'CRÉDITO', from: 5, to: 6 },
+    ];
+    summaryCards.forEach(({ label, from, to }) => {
+      if (from !== to) {
+        sheet.mergeCells(5, from, 5, to);
+        sheet.mergeCells(6, from, 6, to);
+      }
+      const labelCell = sheet.getCell(5, from);
+      const valueCell = sheet.getCell(6, from);
+      labelCell.value = label;
+      [labelCell, valueCell].forEach((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF8F2' } };
+        cell.font = { name: 'Arial', bold: true, color: { argb: 'FF096B38' }, size: cell === valueCell ? 12 : 9 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = this.excelBorder();
+      });
+    });
+    sheet.getRow(5).height = 20;
+    sheet.getRow(6).height = 24;
+
+    let rowNumber = 8;
+    const sectionTotals = new Map<OrderPaymentMethod, { totalRow: number; countFormula: string; total: number }>();
+    const methodByIndex = [OrderPaymentMethod.CASH, OrderPaymentMethod.BANK, OrderPaymentMethod.CREDIT];
+    report.sections.forEach((section, sectionIndex) => {
+      sheet.mergeCells(rowNumber, 1, rowNumber, 6);
+      const sectionCell = sheet.getCell(rowNumber, 1);
+      sectionCell.value = section.label.toLocaleUpperCase('es-CO');
+      sectionCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF096B38' } };
+      sectionCell.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      sectionCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      sectionCell.border = this.excelBorder();
+      sheet.getRow(rowNumber).height = 23;
+      rowNumber += 1;
+
+      const headerRow = sheet.getRow(rowNumber);
+      headerRow.values = ['PEDIDO', 'FECHA', 'DOCUMENTO', 'CLIENTE', 'PUNTO DE VENTA', 'VALOR'];
+      headerRow.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9EEE2' } };
+        cell.font = { name: 'Arial', bold: true, color: { argb: 'FF096B38' }, size: 9 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = this.excelBorder();
+      });
+      headerRow.height = 23;
+      rowNumber += 1;
+
+      const dataStartRow = rowNumber;
+      section.rows.forEach((movement, index) => {
+        const row = sheet.getRow(rowNumber);
+        row.values = [
+          movement.orderNumber,
+          new Date(`${movement.date}T12:00:00`),
+          movement.clientDocument,
+          movement.clientName,
+          movement.pointOfSale,
+          movement.amount,
+        ];
+        row.font = { name: 'Arial', size: 10 };
+        row.alignment = { vertical: 'middle' };
+        row.height = movement.clientName.length > 38 ? 30 : 22;
+        row.eachCell((cell) => {
+          cell.border = this.excelBorder();
+          if (index % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FBF9' } };
+        });
+        row.getCell(2).numFmt = 'yyyy-mm-dd';
+        row.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+        row.getCell(4).alignment = { vertical: 'middle', wrapText: true };
+        row.getCell(6).numFmt = '$#,##0';
+        row.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+        rowNumber += 1;
+      });
+      const dataEndRow = rowNumber - 1;
+
+      if (!section.rows.length) {
+        sheet.mergeCells(rowNumber, 1, rowNumber, 6);
+        const emptyCell = sheet.getCell(rowNumber, 1);
+        emptyCell.value = 'Sin movimientos en este periodo.';
+        emptyCell.font = { name: 'Arial', italic: true, color: { argb: 'FF5F6F65' }, size: 10 };
+        emptyCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        emptyCell.border = this.excelBorder();
+        rowNumber += 1;
+      }
+
+      const totalRow = sheet.getRow(rowNumber);
+      totalRow.getCell(1).value = `Total ${section.label}`;
+      sheet.mergeCells(rowNumber, 1, rowNumber, 5);
+      totalRow.getCell(6).value = section.rows.length
+        ? { formula: `SUM(F${dataStartRow}:F${dataEndRow})`, result: section.total }
+        : { formula: '0', result: 0 };
+      totalRow.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF8F2' } };
+        cell.font = { name: 'Arial', bold: true, color: { argb: 'FF096B38' }, size: 10 };
+        cell.border = this.excelBorder();
+      });
+      totalRow.getCell(6).numFmt = '$#,##0';
+      totalRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+      sectionTotals.set(methodByIndex[sectionIndex], {
+        totalRow: rowNumber,
+        countFormula: section.rows.length ? `COUNTA(A${dataStartRow}:A${dataEndRow})` : '0',
+        total: section.total,
+      });
+      rowNumber += 2;
+    });
+
+    const totalMovements = report.sections.reduce((sum, section) => sum + section.rows.length, 0);
+    const countFormula = methodByIndex.map((method) => sectionTotals.get(method)?.countFormula || '0').join('+');
+    sheet.getCell('A6').value = { formula: countFormula, result: totalMovements };
+    sheet.getCell('A6').numFmt = '#,##0';
+    [
+      { address: 'C6', method: OrderPaymentMethod.CASH },
+      { address: 'D6', method: OrderPaymentMethod.BANK },
+      { address: 'E6', method: OrderPaymentMethod.CREDIT },
+    ].forEach(({ address, method }) => {
+      const summary = sectionTotals.get(method)!;
+      const cell = sheet.getCell(address);
+      cell.value = { formula: `F${summary.totalRow}`, result: summary.total };
+      cell.numFmt = '$#,##0';
+    });
+
+    sheet.pageSetup.printArea = `A1:F${rowNumber - 1}`;
+    sheet.headerFooter.oddFooter = 'Página &P de &N';
+    const output = await workbook.xlsx.writeBuffer();
+    return {
+      buffer: Buffer.from(output),
+      filename: `Movimientos pedidos - ${report.fromDate} a ${report.toDate}.xlsx`,
+    };
+  }
+
   private async findAccessible(actor: User, id: string, requireOwnership = false) {
     const order = await this.prisma.order.findFirst({
       where: {
@@ -291,7 +488,7 @@ export class OrdersService {
       });
     }
     const createdAt: Prisma.DateTimeFilter = {};
-    if (query.fromDate) createdAt.gte = new Date(query.fromDate);
+    if (query.fromDate) createdAt.gte = this.startOfDay(query.fromDate);
     if (query.toDate) createdAt.lte = this.endOfDay(query.toDate);
 
     return {
@@ -350,8 +547,86 @@ export class OrdersService {
   }
 
   private endOfDay(value: string) {
-    const date = new Date(value);
-    date.setHours(23, 59, 59, 999);
-    return date;
+    return new Date(`${value}T23:59:59.999-05:00`);
+  }
+
+  private startOfDay(value: string) {
+    return new Date(`${value}T00:00:00.000-05:00`);
+  }
+
+  private async getMovementReport(userId: string, query: QueryOrdersDto) {
+    const actor = await this.users.getActiveUser(userId);
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const fromDate = query.fromDate || today;
+    const toDate = query.toDate || fromDate;
+    if (fromDate > toDate) throw new BadRequestException('La fecha inicial no puede ser posterior a la fecha final');
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: RecordStatus.ACTIVE,
+        createdAt: { gte: this.startOfDay(fromDate), lte: this.endOfDay(toDate) },
+        ...(!isAdminRole(actor.role) ? { pointOfSaleId: actor.pointOfSaleId! } : {}),
+      },
+      select: {
+        documentNumber: true,
+        clientName: true,
+        clientDocument: true,
+        createdAt: true,
+        paymentMethod: true,
+        totalAmount: true,
+        pointOfSale: { select: { name: true } },
+        payments: { select: { method: true, amount: true }, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: [{ createdAt: 'asc' }, { documentNumber: 'asc' }],
+      take: 10000,
+    });
+
+    const definitions = [
+      { method: OrderPaymentMethod.CASH, label: 'Efectivo' },
+      { method: OrderPaymentMethod.BANK, label: 'Banco' },
+      { method: OrderPaymentMethod.CREDIT, label: 'Crédito' },
+    ];
+    const sections: OrderMovementReportSection[] = definitions.map(({ method, label }) => {
+      const rows = orders.flatMap((order) => {
+        const payments = order.payments.length
+          ? order.payments
+          : order.paymentMethod
+            ? [{ method: order.paymentMethod, amount: order.totalAmount }]
+            : [];
+        return payments
+          .filter((payment) => payment.method === method)
+          .map((payment) => ({
+            orderNumber: order.documentNumber,
+            date: this.formatBogotaDate(order.createdAt),
+            clientDocument: order.clientDocument,
+            clientName: order.clientName,
+            pointOfSale: order.pointOfSale?.name || 'Sin punto de venta',
+            amount: decimalToNumber(payment.amount),
+          }));
+      });
+      return {
+        label,
+        rows,
+        total: rows.reduce((sum, row) => sum + row.amount, 0),
+      };
+    });
+
+    return { fromDate, toDate, sections };
+  }
+
+  private formatBogotaDate(value: Date) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  }
+
+  private excelBorder() {
+    const border = { style: 'thin' as const, color: { argb: 'FFD9E3DC' } };
+    return { top: border, left: border, bottom: border, right: border };
   }
 }

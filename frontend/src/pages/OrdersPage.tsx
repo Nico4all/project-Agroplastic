@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Eye, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
+import { Ban, Download, Eye, FileSpreadsheet, FileText, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { clientsApi, ordersApi, productsApi, usersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Order, OrderPaymentMethod } from '../types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
-import { openBlob } from '../utils/download';
+import { downloadBlob, openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
 import { isAdminRole } from '../utils/roles';
 
@@ -13,6 +13,7 @@ type OrderLineForm = { productId: string; quantity: string; unitPrice: string };
 type PaymentLineForm = { method: OrderPaymentMethod; amount: string };
 const emptyLine = (): OrderLineForm => ({ productId: '', quantity: '1', unitPrice: '' });
 const emptyPayment = (): PaymentLineForm => ({ method: 'CASH', amount: '' });
+const todayBogota = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -38,6 +39,10 @@ export function OrdersPage() {
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [voiding, setVoiding] = useState<Order | null>(null);
   const [voidReason, setVoidReason] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportDates, setReportDates] = useState({ fromDate: todayBogota(), toDate: todayBogota() });
+  const [reportError, setReportError] = useState('');
+  const [reportingFormat, setReportingFormat] = useState<'pdf' | 'excel' | null>(null);
 
   const params = useMemo(
     () => Object.fromEntries(Object.entries({ page, pageSize: 15, ...filters }).filter(([, value]) => value !== '')),
@@ -137,6 +142,41 @@ export function OrdersPage() {
     }
   }
 
+  function openReportForm() {
+    const today = todayBogota();
+    setReportDates({
+      fromDate: filters.fromDate || today,
+      toDate: filters.toDate || filters.fromDate || today,
+    });
+    setReportError('');
+    setReportOpen(true);
+  }
+
+  async function exportMovementReport(format: 'pdf' | 'excel') {
+    setReportError('');
+    if (!reportDates.fromDate || !reportDates.toDate) {
+      setReportError('Selecciona la fecha inicial y la fecha final');
+      return;
+    }
+    if (reportDates.fromDate > reportDates.toDate) {
+      setReportError('La fecha inicial no puede ser posterior a la fecha final');
+      return;
+    }
+
+    setReportingFormat(format);
+    try {
+      const blob = format === 'pdf'
+        ? await ordersApi.exportMovementsPdf(reportDates)
+        : await ordersApi.exportMovementsExcel(reportDates);
+      downloadBlob(blob, `movimientos-pedidos-${reportDates.fromDate}-a-${reportDates.toDate}.${format === 'pdf' ? 'pdf' : 'xlsx'}`);
+      toast(`Informe ${format === 'pdf' ? 'PDF' : 'Excel'} generado`);
+    } catch (err) {
+      setReportError(getApiError(err, 'No se pudo generar el informe'));
+    } finally {
+      setReportingFormat(null);
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
@@ -204,7 +244,10 @@ export function OrdersPage() {
           <h1 className="text-2xl font-extrabold tracking-tight">Pedidos</h1>
           <p className="text-sm text-mute">Cada pedido descuenta inmediatamente las existencias del punto de venta.</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4" /> Nuevo</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={openReportForm}><Download className="h-4 w-4" /> Informe de movimientos</Button>
+          <Button onClick={openCreate}><Plus className="h-4 w-4" /> Nuevo</Button>
+        </div>
       </div>
 
       <Card className="p-4">
@@ -297,6 +340,48 @@ export function OrdersPage() {
       ) : (
         <EmptyState title="Sin pedidos" action={<Button onClick={openCreate}>Registrar pedido</Button>} />
       )}
+
+      <Modal open={reportOpen} onClose={() => setReportOpen(false)} title="Informe de movimientos de pedidos">
+        <div className="space-y-4">
+          <p className="text-sm text-mute">
+            El archivo separa los pedidos activos en efectivo, banco y crédito, con fecha, cliente y valor de cada movimiento.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Desde">
+              <Input
+                required
+                type="date"
+                value={reportDates.fromDate}
+                max={reportDates.toDate || undefined}
+                onChange={(event) => setReportDates((current) => ({ ...current, fromDate: event.target.value }))}
+              />
+            </Field>
+            <Field label="Hasta">
+              <Input
+                required
+                type="date"
+                value={reportDates.toDate}
+                min={reportDates.fromDate || undefined}
+                onChange={(event) => setReportDates((current) => ({ ...current, toDate: event.target.value }))}
+              />
+            </Field>
+          </div>
+          {reportError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{reportError}</p>}
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setReportOpen(false)}>Cancelar</Button>
+            <Button
+              variant="secondary"
+              disabled={reportingFormat !== null}
+              onClick={() => exportMovementReport('excel')}
+            >
+              <FileSpreadsheet className="h-4 w-4" /> {reportingFormat === 'excel' ? 'Generando...' : 'Descargar Excel'}
+            </Button>
+            <Button disabled={reportingFormat !== null} onClick={() => exportMovementReport('pdf')}>
+              <FileText className="h-4 w-4" /> {reportingFormat === 'pdf' ? 'Generando...' : 'Descargar PDF'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo pedido">
         <form onSubmit={submit} className="space-y-4">

@@ -23,6 +23,26 @@ export class OrdersController {
     return this.orders.create(user.userId, dto);
   }
 
+  @Get('export/excel')
+  async exportMovementsExcel(
+    @CurrentUser() user: { userId: string },
+    @Query() query: QueryOrdersDto,
+    @Res() res: Response,
+  ) {
+    const file = await this.orders.exportMovementsExcel(user.userId, query);
+    this.sendFile(res, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  @Get('export/pdf')
+  async exportMovementsPdf(
+    @CurrentUser() user: { userId: string },
+    @Query() query: QueryOrdersDto,
+    @Res() res: Response,
+  ) {
+    const file = await this.orders.exportMovementsPdf(user.userId, query);
+    this.sendFile(res, file, 'application/pdf');
+  }
+
   @Get(':id/pdf')
   @Header('Content-Type', 'application/pdf')
   async ticketPdf(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Res() res: Response) {
@@ -45,5 +65,12 @@ export class OrdersController {
   @HttpCode(200)
   void(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Body() dto: VoidOrderDto) {
     return this.orders.void(user.userId, id, dto);
+  }
+
+  private sendFile(res: Response, file: { buffer: Buffer; filename: string }, contentType: string) {
+    const asciiFilename = file.filename.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9 ._-]/g, '');
+    res.header('Content-Type', contentType);
+    res.header('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+    res.send(file.buffer);
   }
 }

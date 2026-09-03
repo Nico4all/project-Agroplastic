@@ -191,6 +191,10 @@ export const priceListApi = {
 
 export const ordersApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<PaginatedResult<Order>>('/orders', { params })).data,
+  exportMovementsExcel: async (params: { fromDate: string; toDate: string }) =>
+    (await api.get('/orders/export/excel', { params, responseType: 'blob' })).data as Blob,
+  exportMovementsPdf: async (params: { fromDate: string; toDate: string }) =>
+    (await api.get('/orders/export/pdf', { params, responseType: 'blob' })).data as Blob,
   create: async (payload: {
     clientId: string;
     deliveryAddress: string;

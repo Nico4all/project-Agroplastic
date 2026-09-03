@@ -50,7 +50,7 @@ export function ExpensesPage() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ fromDate: '', toDate: '', userId: '', categoryId: '', status: '', search: '' });
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<ExpenseForm>({ ...emptyForm, approvedBy: user?.name || '' });
+  const [form, setForm] = useState<ExpenseForm>({ ...emptyForm });
   const [voiding, setVoiding] = useState<CashExpense | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [formError, setFormError] = useState('');
@@ -110,7 +110,7 @@ export function ExpensesPage() {
   };
 
   const openCreate = () => {
-    setForm({ ...emptyForm, expenseDate: dateInput(), approvedBy: user?.name || '' });
+    setForm({ ...emptyForm, expenseDate: dateInput() });
     setFormError('');
     setModalOpen(true);
   };
@@ -358,8 +358,15 @@ export function ExpensesPage() {
               </Field>
             </div>
           )}
-          <Field label="Aprobado por">
-            <Input maxLength={120} value={form.approvedBy} onChange={(event) => setForm({ ...form, approvedBy: event.target.value })} />
+          <Field label="Elaborado por" hint="Escribe el nombre de la persona que está registrando este egreso.">
+            <Input
+              required
+              minLength={2}
+              maxLength={120}
+              value={form.approvedBy}
+              onChange={(event) => setForm({ ...form, approvedBy: event.target.value })}
+              placeholder="Nombre del elaborador"
+            />
           </Field>
           <Field label="Descripcion">
             <Input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
