@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryMovementType, Prisma, User } from '@prisma/client';
+import { InventoryMovementType, Prisma, RecordStatus, User } from '@prisma/client';
 import { Workbook } from 'exceljs';
 import { decimalToNumber } from '../../common/helpers/money';
 import { cleanDisplayText } from '../../common/helpers/normalization';
@@ -12,6 +12,8 @@ import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
 import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
+import { UpdateInventoryAdjustmentDto } from './dto/update-inventory-adjustment.dto';
+import { VoidInventoryAdjustmentDto } from './dto/void-inventory-adjustment.dto';
 
 @Injectable()
 export class InventoryService {
@@ -267,7 +269,7 @@ export class InventoryService {
 
   async findProductHistory(userId: string, query: QueryProductHistoryDto) {
     const context = await this.productHistoryContext(userId, query);
-    const [total, rows, stats] = await this.prisma.$transaction([
+    const [total, rows, stats, inputTotal, outputTotal] = await this.prisma.$transaction([
       this.prisma.inventoryMovement.count({ where: context.where }),
       this.prisma.inventoryMovement.findMany({
         where: context.where,
@@ -283,8 +285,22 @@ export class InventoryService {
         _count: { _all: true },
         _sum: { quantityChange: true },
       }),
+      this.prisma.inventoryMovement.aggregate({
+        where: { AND: [context.where, { quantityChange: { gt: 0 } }] },
+        _sum: { quantityChange: true },
+      }),
+      this.prisma.inventoryMovement.aggregate({
+        where: { AND: [context.where, { quantityChange: { lt: 0 } }] },
+        _sum: { quantityChange: true },
+      }),
     ]);
-    const summary = this.productHistorySummary(stats, total, decimalToNumber(context.stock.quantity));
+    const summary = this.productHistorySummary(
+      stats,
+      total,
+      decimalToNumber(context.stock.quantity),
+      decimalToNumber(inputTotal._sum.quantityChange),
+      Math.abs(decimalToNumber(outputTotal._sum.quantityChange)),
+    );
     return {
       data: rows.map((row) => this.serializeProductHistory(row)),
       total,
@@ -549,6 +565,112 @@ export class InventoryService {
     return this.serializeAdjustment(adjustment);
   }
 
+  async updateAdjustment(userId: string, id: string, dto: UpdateInventoryAdjustmentDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const quantity = new Prisma.Decimal(dto.quantity);
+    const adjustment = await this.prisma.$transaction(async (tx) => {
+      await this.lockInventoryAdjustment(tx, id);
+      const current = await tx.inventoryAdjustment.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Ajuste de inventario no encontrado');
+      if (current.status === RecordStatus.VOID) throw new BadRequestException('No puedes editar un ajuste anulado');
+
+      const movementTotal = await tx.inventoryMovement.aggregate({
+        where: { inventoryAdjustmentId: id },
+        _sum: { quantityChange: true },
+      });
+      const appliedQuantity = movementTotal._sum.quantityChange || new Prisma.Decimal(0);
+      const targetQuantity = current.operation === InventoryAdjustmentOperation.ADD ? quantity : quantity.negated();
+      const difference = targetQuantity.minus(appliedQuantity);
+      const claimed = await tx.inventoryAdjustment.updateMany({
+        where: { id, status: RecordStatus.ACTIVE, quantity: current.quantity },
+        data: {
+          quantity,
+          balanceAfter: current.balanceBefore.add(targetQuantity),
+          observation: dto.observation?.trim() || null,
+        },
+      });
+      if (claimed.count !== 1) throw new BadRequestException('El ajuste cambió mientras lo editabas. Intenta de nuevo');
+
+      if (!difference.isZero()) {
+        const stock = await this.applyInventoryDelta(
+          tx,
+          current.pointOfSaleId,
+          current.productId,
+          difference,
+          'editar el ajuste',
+        );
+        await tx.inventoryMovement.create({
+          data: {
+            pointOfSaleId: current.pointOfSaleId,
+            productId: current.productId,
+            userId: actor.id,
+            inventoryAdjustmentId: current.id,
+            type: InventoryMovementType.ADJUSTMENT_EDIT,
+            quantityChange: difference,
+            balanceAfter: stock.quantity,
+          },
+        });
+      }
+
+      return tx.inventoryAdjustment.findUniqueOrThrow({ where: { id }, include: this.adjustmentRelations() });
+    });
+    return this.serializeAdjustment(adjustment);
+  }
+
+  async voidAdjustment(userId: string, id: string, dto: VoidInventoryAdjustmentDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const adjustment = await this.prisma.$transaction(async (tx) => {
+      await this.lockInventoryAdjustment(tx, id);
+      const current = await tx.inventoryAdjustment.findUnique({
+        where: { id },
+        include: this.adjustmentRelations(),
+      });
+      if (!current) throw new NotFoundException('Ajuste de inventario no encontrado');
+      if (current.status === RecordStatus.VOID) return current;
+
+      const movementTotal = await tx.inventoryMovement.aggregate({
+        where: { inventoryAdjustmentId: id },
+        _sum: { quantityChange: true },
+      });
+      const appliedQuantity = movementTotal._sum.quantityChange || new Prisma.Decimal(0);
+      const claimed = await tx.inventoryAdjustment.updateMany({
+        where: { id, status: RecordStatus.ACTIVE },
+        data: {
+          status: RecordStatus.VOID,
+          voidReason: dto.reason?.trim() || null,
+          voidedAt: new Date(),
+          voidedByUserId: actor.id,
+        },
+      });
+      if (claimed.count !== 1) throw new BadRequestException('El ajuste ya fue anulado');
+
+      const reversal = appliedQuantity.negated();
+      if (!reversal.isZero()) {
+        const stock = await this.applyInventoryDelta(
+          tx,
+          current.pointOfSaleId,
+          current.productId,
+          reversal,
+          'anular el ajuste',
+        );
+        await tx.inventoryMovement.create({
+          data: {
+            pointOfSaleId: current.pointOfSaleId,
+            productId: current.productId,
+            userId: actor.id,
+            inventoryAdjustmentId: current.id,
+            type: InventoryMovementType.ADJUSTMENT_VOID,
+            quantityChange: reversal,
+            balanceAfter: stock.quantity,
+          },
+        });
+      }
+
+      return tx.inventoryAdjustment.findUniqueOrThrow({ where: { id }, include: this.adjustmentRelations() });
+    });
+    return this.serializeAdjustment(adjustment);
+  }
+
   async transferStock(userId: string, dto: CreateInventoryTransferDto) {
     const actor = await this.users.ensureAdmin(userId);
     const originPointOfSaleId = await this.resolvePointOfSale(actor, dto.originPointOfSaleId);
@@ -672,7 +794,17 @@ export class InventoryService {
         { type: InventoryMovementType.ORDER, orderId: { not: null } },
         { type: InventoryMovementType.ORDER_VOID, orderId: { not: null } },
         { type: InventoryMovementType.ENTRY, inventoryEntryId: { not: null } },
-        { type: { in: [InventoryMovementType.ADJUSTMENT_ADD, InventoryMovementType.ADJUSTMENT_SUBTRACT] }, inventoryAdjustmentId: { not: null } },
+        {
+          type: {
+            in: [
+              InventoryMovementType.ADJUSTMENT_ADD,
+              InventoryMovementType.ADJUSTMENT_SUBTRACT,
+              InventoryMovementType.ADJUSTMENT_EDIT,
+              InventoryMovementType.ADJUSTMENT_VOID,
+            ],
+          },
+          inventoryAdjustmentId: { not: null },
+        },
         { type: { in: [InventoryMovementType.TRANSFER_IN, InventoryMovementType.TRANSFER_OUT] }, inventoryTransferId: { not: null } },
       ],
       ...(Object.keys(createdAt).length ? { createdAt } : {}),
@@ -706,6 +838,8 @@ export class InventoryService {
           documentNumber: true,
           operation: true,
           observation: true,
+          status: true,
+          voidReason: true,
         },
       },
       inventoryTransfer: {
@@ -726,7 +860,12 @@ export class InventoryService {
     const inventoryAfter = decimalToNumber(row.balanceAfter);
     const isEntry = row.type === InventoryMovementType.ENTRY;
     const isOrder = row.type === InventoryMovementType.ORDER || row.type === InventoryMovementType.ORDER_VOID;
-    const isAdjustment = row.type === InventoryMovementType.ADJUSTMENT_ADD || row.type === InventoryMovementType.ADJUSTMENT_SUBTRACT;
+    const isAdjustment = [
+      InventoryMovementType.ADJUSTMENT_ADD,
+      InventoryMovementType.ADJUSTMENT_SUBTRACT,
+      InventoryMovementType.ADJUSTMENT_EDIT,
+      InventoryMovementType.ADJUSTMENT_VOID,
+    ].includes(row.type);
     const document = isEntry ? row.inventoryEntry : isOrder ? row.order : isAdjustment ? row.inventoryAdjustment : row.inventoryTransfer;
     const thirdPartyName = isEntry
       ? document.supplierName
@@ -744,7 +883,11 @@ export class InventoryService {
           ? `Reintegro por anulación · ${document.documentNumber}`
           : `${document.status === 'VOID' ? 'Anulado' : 'Activo'} · ${document.invoicedAt ? 'Facturado' : 'Sin facturar'}`
         : isAdjustment
-          ? `${document.operation === 'ADD' ? 'Suma' : 'Resta'} · ${document.observation || 'Sin observación'}`
+          ? row.type === InventoryMovementType.ADJUSTMENT_EDIT
+            ? `Corrección de cantidad · ${document.observation || 'Sin observación'}`
+            : row.type === InventoryMovementType.ADJUSTMENT_VOID
+              ? `Reversión por anulación · ${document.voidReason || 'Sin motivo'}`
+              : `${document.status === RecordStatus.VOID ? 'Ajuste anulado' : document.operation === 'ADD' ? 'Suma' : 'Resta'} · ${document.observation || 'Sin observación'}`
           : `${document.originPointOfSale.name} → ${document.destinationPointOfSale.name}${document.observation ? ` · ${document.observation}` : ''}`;
     return {
       id: row.id,
@@ -765,25 +908,31 @@ export class InventoryService {
     };
   }
 
-  private productHistorySummary(stats: any[], movements: number, currentInventory: number) {
+  private productHistorySummary(
+    stats: any[],
+    movements: number,
+    currentInventory: number,
+    totalInput: number,
+    totalOutput: number,
+  ) {
     const byType = new Map(stats.map((row) => [row.type, row]));
     const entries = byType.get(InventoryMovementType.ENTRY);
     const orders = byType.get(InventoryMovementType.ORDER);
-    const orderVoids = byType.get(InventoryMovementType.ORDER_VOID);
     const adjustmentAdd = byType.get(InventoryMovementType.ADJUSTMENT_ADD);
     const adjustmentSubtract = byType.get(InventoryMovementType.ADJUSTMENT_SUBTRACT);
+    const adjustmentEdit = byType.get(InventoryMovementType.ADJUSTMENT_EDIT);
+    const adjustmentVoid = byType.get(InventoryMovementType.ADJUSTMENT_VOID);
     const transferIn = byType.get(InventoryMovementType.TRANSFER_IN);
     const transferOut = byType.get(InventoryMovementType.TRANSFER_OUT);
     const count = (row: any) => row?._count?._all || 0;
-    const sum = (row: any) => decimalToNumber(row?._sum?.quantityChange);
     return {
       movements,
       entries: count(entries),
       orders: count(orders),
-      adjustments: count(adjustmentAdd) + count(adjustmentSubtract),
+      adjustments: count(adjustmentAdd) + count(adjustmentSubtract) + count(adjustmentEdit) + count(adjustmentVoid),
       transfers: count(transferIn) + count(transferOut),
-      totalInput: sum(entries) + sum(orderVoids) + sum(adjustmentAdd) + sum(transferIn),
-      totalOutput: Math.abs(sum(orders) + sum(adjustmentSubtract) + sum(transferOut)),
+      totalInput,
+      totalOutput,
       currentInventory,
     };
   }
@@ -795,6 +944,8 @@ export class InventoryService {
       [InventoryMovementType.ORDER_VOID]: 'Anulación',
       [InventoryMovementType.ADJUSTMENT_ADD]: 'Ajuste +',
       [InventoryMovementType.ADJUSTMENT_SUBTRACT]: 'Ajuste -',
+      [InventoryMovementType.ADJUSTMENT_EDIT]: 'Edición de ajuste',
+      [InventoryMovementType.ADJUSTMENT_VOID]: 'Anulación de ajuste',
       [InventoryMovementType.TRANSFER_IN]: 'Traslado entrada',
       [InventoryMovementType.TRANSFER_OUT]: 'Traslado salida',
     };
@@ -856,6 +1007,7 @@ export class InventoryService {
   private adjustmentRelations() {
     return {
       user: { select: { id: true, name: true, username: true } },
+      voidedBy: { select: { id: true, name: true, username: true } },
       pointOfSale: { select: { id: true, name: true, code: true } },
       product: { select: { id: true, description: true } },
     };
@@ -868,6 +1020,47 @@ export class InventoryService {
       balanceBefore: decimalToNumber(row.balanceBefore),
       balanceAfter: decimalToNumber(row.balanceAfter),
     };
+  }
+
+  private async applyInventoryDelta(
+    tx: Prisma.TransactionClient,
+    pointOfSaleId: string,
+    productId: string,
+    delta: Prisma.Decimal,
+    action: string,
+  ) {
+    if (delta.isZero()) {
+      return tx.inventoryStock.findUniqueOrThrow({
+        where: { pointOfSaleId_productId: { pointOfSaleId, productId } },
+      });
+    }
+    const decreasesStock = delta.isNegative();
+    const amount = delta.abs();
+    const changed = await tx.inventoryStock.updateMany({
+      where: {
+        pointOfSaleId,
+        productId,
+        ...(decreasesStock ? { quantity: { gte: amount } } : {}),
+      },
+      data: decreasesStock ? { quantity: { decrement: amount } } : { quantity: { increment: amount } },
+    });
+    if (changed.count !== 1) {
+      const stock = await tx.inventoryStock.findUnique({
+        where: { pointOfSaleId_productId: { pointOfSaleId, productId } },
+        include: { product: { select: { description: true } } },
+      });
+      if (!stock) throw new BadRequestException('El producto no pertenece a esta bodega');
+      throw new BadRequestException(
+        `No hay inventario suficiente para ${action} de ${stock.product.description}. Existencia actual: ${this.formatQuantity(decimalToNumber(stock.quantity))}`,
+      );
+    }
+    return tx.inventoryStock.findUniqueOrThrow({
+      where: { pointOfSaleId_productId: { pointOfSaleId, productId } },
+    });
+  }
+
+  private async lockInventoryAdjustment(tx: Prisma.TransactionClient, id: string) {
+    await tx.$queryRaw`SELECT id FROM inventory_adjustments WHERE id = ${id} FOR UPDATE`;
   }
 
   private transferRelations() {

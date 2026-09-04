@@ -223,8 +223,13 @@ export type InventoryAdjustment = {
   balanceAfter: number;
   observation?: string | null;
   adjustmentDate: string;
+  status: RecordStatus;
+  voidReason?: string | null;
+  voidedAt?: string | null;
+  voidedByUserId?: string | null;
   createdAt: string;
   user?: Pick<User, 'id' | 'name' | 'username'>;
+  voidedBy?: Pick<User, 'id' | 'name' | 'username'> | null;
   pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
   product?: { id: string; description: string };
 };
@@ -254,7 +259,7 @@ export type InventoryTransfer = {
 export type ProductHistoryRow = {
   id: string;
   date: string;
-  movementType: 'ENTRY' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+  movementType: 'ENTRY' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'ADJUSTMENT_EDIT' | 'ADJUSTMENT_VOID' | 'TRANSFER_IN' | 'TRANSFER_OUT';
   documentId: string;
   documentNumber: string;
   thirdPartyName: string;

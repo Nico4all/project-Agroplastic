@@ -135,6 +135,10 @@ export const inventoryApi = {
     quantity: number;
     observation?: string;
   }) => (await api.post<InventoryAdjustment>('/inventory/adjustments', payload)).data,
+  updateAdjustment: async (id: string, payload: { quantity: number; observation?: string }) =>
+    (await api.patch<InventoryAdjustment>(`/inventory/adjustments/${id}`, payload)).data,
+  voidAdjustment: async (id: string, payload: { reason?: string }) =>
+    (await api.patch<InventoryAdjustment>(`/inventory/adjustments/${id}/void`, payload)).data,
   adjustments: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryAdjustment>>('/inventory/adjustments', { params })).data,
   createTransfer: async (payload: {

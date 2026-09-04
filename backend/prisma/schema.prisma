@@ -75,6 +75,8 @@ enum InventoryMovementType {
   ORDER_VOID
   ADJUSTMENT_ADD
   ADJUSTMENT_SUBTRACT
+  ADJUSTMENT_EDIT
+  ADJUSTMENT_VOID
   TRANSFER_OUT
   TRANSFER_IN
 }
@@ -110,7 +112,8 @@ model User {
   orders               Order[]                 @relation("OrderCreator")
   voidedOrders         Order[]                 @relation("OrderVoidUser")
   inventoryEntries     InventoryEntry[]
-  inventoryAdjustments InventoryAdjustment[]
+  inventoryAdjustments InventoryAdjustment[]       @relation("InventoryAdjustmentCreator")
+  voidedInventoryAdjustments InventoryAdjustment[] @relation("InventoryAdjustmentVoidUser")
   inventoryTransfers   InventoryTransfer[]
   inventoryMovements   InventoryMovement[]
   portfolioCollections PortfolioCollection[]
@@ -513,9 +516,14 @@ model InventoryAdjustment {
   balanceAfter       Decimal                      @map("balance_after") @db.Decimal(14, 3)
   observation        String?                      @db.Text
   adjustmentDate     DateTime                     @default(now()) @map("adjustment_date")
+  status             RecordStatus                 @default(ACTIVE)
+  voidReason         String?                      @map("void_reason") @db.Text
+  voidedAt           DateTime?                    @map("voided_at")
+  voidedByUserId     String?                      @map("voided_by_user_id")
   createdAt          DateTime                     @default(now()) @map("created_at")
   updatedAt          DateTime                     @updatedAt @map("updated_at")
-  user               User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user               User                         @relation("InventoryAdjustmentCreator", fields: [userId], references: [id], onDelete: Restrict)
+  voidedBy           User?                        @relation("InventoryAdjustmentVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
   pointOfSale        PointOfSale                  @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   product            Product                      @relation(fields: [productId], references: [id], onDelete: Restrict)
   inventoryMovements InventoryMovement[]
@@ -524,6 +532,8 @@ model InventoryAdjustment {
   @@index([pointOfSaleId, documentSequence])
   @@index([productId, adjustmentDate])
   @@index([adjustmentDate])
+  @@index([status])
+  @@index([voidedByUserId])
   @@map("inventory_adjustments")
 }
 

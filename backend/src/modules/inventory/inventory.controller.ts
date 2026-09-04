@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -7,6 +7,8 @@ import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
 import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
+import { UpdateInventoryAdjustmentDto } from './dto/update-inventory-adjustment.dto';
+import { VoidInventoryAdjustmentDto } from './dto/void-inventory-adjustment.dto';
 import { InventoryService } from './inventory.service';
 
 @UseGuards(JwtAuthGuard)
@@ -77,6 +79,26 @@ export class InventoryController {
   @Post('adjustments')
   adjustStock(@CurrentUser() user: { userId: string }, @Body() dto: CreateInventoryAdjustmentDto) {
     return this.inventory.adjustStock(user.userId, dto);
+  }
+
+  @Patch('adjustments/:id')
+  @HttpCode(200)
+  updateAdjustment(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateInventoryAdjustmentDto,
+  ) {
+    return this.inventory.updateAdjustment(user.userId, id, dto);
+  }
+
+  @Patch('adjustments/:id/void')
+  @HttpCode(200)
+  voidAdjustment(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: VoidInventoryAdjustmentDto,
+  ) {
+    return this.inventory.voidAdjustment(user.userId, id, dto);
   }
 
   @Post('transfers')

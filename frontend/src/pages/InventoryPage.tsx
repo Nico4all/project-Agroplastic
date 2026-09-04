@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Search, SlidersHorizontal, Trash2, TriangleAlert, Truck } from 'lucide-react';
+import { ArrowLeftRight, Ban, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Pencil, Search, SlidersHorizontal, Trash2, TriangleAlert, Truck } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
+import { InventoryAdjustment } from '../types';
 import { dateInput } from '../utils/format';
 import { downloadBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
@@ -19,12 +20,12 @@ function getApiError(error: any, fallback: string) {
 }
 
 function movementLabel(type: string) {
-  return ({ ENTRY: 'Entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida' } as Record<string, string>)[type] || type;
+  return ({ ENTRY: 'Entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', ADJUSTMENT_EDIT: 'Edición ajuste', ADJUSTMENT_VOID: 'Anulación ajuste', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida' } as Record<string, string>)[type] || type;
 }
 
 function movementTone(type: string): 'income' | 'expense' | 'transfer' | 'neutral' {
   if (['ENTRY', 'ORDER_VOID', 'ADJUSTMENT_ADD', 'TRANSFER_IN'].includes(type)) return 'income';
-  if (['ADJUSTMENT_SUBTRACT', 'TRANSFER_OUT'].includes(type)) return 'expense';
+  if (['ADJUSTMENT_SUBTRACT', 'ADJUSTMENT_VOID', 'TRANSFER_OUT'].includes(type)) return 'expense';
   return type === 'ORDER' ? 'neutral' : 'transfer';
 }
 
@@ -52,6 +53,9 @@ export function InventoryPage() {
   const [adjustmentObservation, setAdjustmentObservation] = useState('');
   const [adjustmentError, setAdjustmentError] = useState('');
   const [adjustmentPage, setAdjustmentPage] = useState(1);
+  const [editingAdjustment, setEditingAdjustment] = useState<InventoryAdjustment | null>(null);
+  const [voidingAdjustment, setVoidingAdjustment] = useState<InventoryAdjustment | null>(null);
+  const [adjustmentVoidReason, setAdjustmentVoidReason] = useState('');
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferOriginId, setTransferOriginId] = useState('');
   const [transferDestinationId, setTransferDestinationId] = useState('');
@@ -155,6 +159,31 @@ export function InventoryPage() {
     onError: (err) => setAdjustmentError(getApiError(err, 'No se pudo realizar el ajuste')),
   });
 
+  const updateAdjustment = useMutation({
+    mutationFn: ({ id, quantity, observation }: { id: string; quantity: number; observation?: string }) =>
+      inventoryApi.updateAdjustment(id, { quantity, observation }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(`Ajuste ${updated.documentNumber} actualizado`);
+      setAdjustmentModalOpen(false);
+      setEditingAdjustment(null);
+    },
+    onError: (err) => setAdjustmentError(getApiError(err, 'No se pudo editar el ajuste')),
+  });
+
+  const voidAdjustment = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => inventoryApi.voidAdjustment(id, { reason }),
+    onSuccess: (voided) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(`Ajuste ${voided.documentNumber} anulado`);
+      setVoidingAdjustment(null);
+      setAdjustmentVoidReason('');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo anular el ajuste'), 'error'),
+  });
+
   const transfer = useMutation({
     mutationFn: inventoryApi.createTransfer,
     onSuccess: (created, variables) => {
@@ -178,11 +207,23 @@ export function InventoryPage() {
   };
 
   const openAdjustment = () => {
+    setEditingAdjustment(null);
     setAdjustmentPointOfSaleId(pointOfSaleId || points.find((point) => point.isActive)?.id || '');
     setAdjustmentProductId('');
     setAdjustmentOperation('ADD');
     setAdjustmentQuantity('1');
     setAdjustmentObservation('');
+    setAdjustmentError('');
+    setAdjustmentModalOpen(true);
+  };
+
+  const openEditAdjustment = (adjustment: InventoryAdjustment) => {
+    setEditingAdjustment(adjustment);
+    setAdjustmentPointOfSaleId(adjustment.pointOfSaleId);
+    setAdjustmentProductId(adjustment.productId);
+    setAdjustmentOperation(adjustment.operation);
+    setAdjustmentQuantity(String(adjustment.quantity));
+    setAdjustmentObservation(adjustment.observation || '');
     setAdjustmentError('');
     setAdjustmentModalOpen(true);
   };
@@ -246,13 +287,17 @@ export function InventoryPage() {
     if (!adjustmentProductId) return setAdjustmentError('Selecciona un producto');
     const quantity = Number(adjustmentQuantity);
     if (!Number.isFinite(quantity) || quantity <= 0) return setAdjustmentError('Ingresa una cantidad válida');
-    await adjust.mutateAsync({
-      pointOfSaleId: adjustmentPointOfSaleId,
-      productId: adjustmentProductId,
-      operation: adjustmentOperation,
-      quantity,
-      observation: adjustmentObservation,
-    });
+    if (editingAdjustment) {
+      await updateAdjustment.mutateAsync({ id: editingAdjustment.id, quantity, observation: adjustmentObservation });
+    } else {
+      await adjust.mutateAsync({
+        pointOfSaleId: adjustmentPointOfSaleId,
+        productId: adjustmentProductId,
+        operation: adjustmentOperation,
+        quantity,
+        observation: adjustmentObservation,
+      });
+    }
   }
 
   async function submitTransfer(event: FormEvent) {
@@ -273,9 +318,15 @@ export function InventoryPage() {
   }
 
   const adjustmentProduct = adjustmentProducts.find((product) => product.id === adjustmentProductId);
+  const adjustmentStock = stocks.find((stock) => stock.productId === adjustmentProductId);
   const adjustmentAmount = Number(adjustmentQuantity) || 0;
-  const resultingQuantity = adjustmentProduct
-    ? adjustmentProduct.quantity + (adjustmentOperation === 'ADD' ? adjustmentAmount : -adjustmentAmount)
+  const currentAdjustmentStock = editingAdjustment ? adjustmentStock?.quantity : adjustmentProduct?.quantity;
+  const previousAdjustmentAmount = editingAdjustment
+    ? (editingAdjustment.operation === 'ADD' ? editingAdjustment.quantity : -editingAdjustment.quantity)
+    : 0;
+  const nextAdjustmentAmount = adjustmentOperation === 'ADD' ? adjustmentAmount : -adjustmentAmount;
+  const resultingQuantity = currentAdjustmentStock !== undefined
+    ? currentAdjustmentStock + nextAdjustmentAmount - previousAdjustmentAmount
     : null;
   const adjustmentProductOptions = adjustmentProducts.map((product) => ({
     value: product.id,
@@ -337,7 +388,58 @@ export function InventoryPage() {
         <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><Boxes className="h-4 w-4 text-brand" /><h2 className="font-bold">Existencias actuales - {pointName}</h2></div><div className="max-h-[420px] overflow-auto"><table className="w-full min-w-[620px] text-sm"><thead className="sticky top-0 bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Existencia</th><th className="px-4 py-3">Estado</th></tr></thead><tbody className="divide-y divide-line">{stocks.map((stock) => <tr key={stock.id}><td className="px-4 py-3 font-semibold">{stock.productDescription}</td><td className={`px-4 py-3 text-right font-bold ${stock.quantity <= 0 ? 'text-expense' : 'text-brand-dark'}`}>{stock.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{stock.isActive ? 'Activo' : 'Inactivo'}</td></tr>)}</tbody></table>{!stocks.length && <p className="p-6 text-center text-sm text-mute">No hay productos asignados.</p>}</div></Card>
       </>}
 
-      {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><SlidersHorizontal className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Ajustes de inventario</h2><p className="text-xs text-mute">Documentos consecutivos aplicados en {pointName}.</p></div></div>{adjustmentsLoading || !adjustments ? <div className="p-6"><Spinner /></div> : adjustments.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Producto</th><th className="px-4 py-3">Operación</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3 text-right">Antes</th><th className="px-4 py-3 text-right">Después</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{adjustments.data.map((adjustment) => <tr key={adjustment.id}><td className="px-4 py-3 font-mono font-semibold">{adjustment.documentNumber}</td><td className="px-4 py-3">{dateInput(adjustment.adjustmentDate)}</td><td className="px-4 py-3 font-semibold">{adjustment.product?.description || '-'}</td><td className="px-4 py-3"><Badge tone={adjustment.operation === 'ADD' ? 'income' : 'expense'}>{adjustment.operation === 'ADD' ? 'Suma' : 'Resta'}</Badge></td><td className={`px-4 py-3 text-right font-bold ${adjustment.operation === 'ADD' ? 'text-brand-dark' : 'text-expense'}`}>{adjustment.operation === 'ADD' ? '+' : '-'}{adjustment.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right">{adjustment.balanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3 text-right font-semibold">{adjustment.balanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="max-w-[260px] px-4 py-3">{adjustment.observation || '-'}</td><td className="px-4 py-3">{adjustment.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={adjustments.page} pageSize={adjustments.pageSize} total={adjustments.total} onChange={setAdjustmentPage} /></div></> : <EmptyState title="Sin ajustes registrados" />}</Card>}
+      {pointOfSaleId && <Card className="overflow-hidden p-0">
+        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+          <SlidersHorizontal className="h-4 w-4 text-brand" />
+          <div><h2 className="font-bold">Ajustes de inventario</h2><p className="text-xs text-mute">Documentos consecutivos aplicados en {pointName}.</p></div>
+        </div>
+        {adjustmentsLoading || !adjustments ? <div className="p-6"><Spinner /></div> : adjustments.data.length ? <>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1220px] text-sm">
+              <thead className="bg-paper text-left text-xs uppercase text-mute">
+                <tr>
+                  <th className="px-4 py-3">Documento</th>
+                  <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3">Producto</th>
+                  <th className="px-4 py-3">Operación</th>
+                  <th className="px-4 py-3 text-right">Cantidad</th>
+                  <th className="px-4 py-3 text-right">Antes</th>
+                  <th className="px-4 py-3 text-right">Después</th>
+                  <th className="px-4 py-3">Observación</th>
+                  <th className="px-4 py-3">Usuario</th>
+                  <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {adjustments.data.map((adjustment) => (
+                  <tr key={adjustment.id} className={adjustment.status === 'VOID' ? 'bg-expense-soft/25' : ''}>
+                    <td className="px-4 py-3 font-mono font-semibold">{adjustment.documentNumber}</td>
+                    <td className="px-4 py-3">{dateInput(adjustment.adjustmentDate)}</td>
+                    <td className="px-4 py-3 font-semibold">{adjustment.product?.description || '-'}</td>
+                    <td className="px-4 py-3"><Badge tone={adjustment.operation === 'ADD' ? 'income' : 'expense'}>{adjustment.operation === 'ADD' ? 'Suma' : 'Resta'}</Badge></td>
+                    <td className={`px-4 py-3 text-right font-bold ${adjustment.status === 'VOID' ? 'text-mute line-through' : adjustment.operation === 'ADD' ? 'text-brand-dark' : 'text-expense'}`}>{adjustment.operation === 'ADD' ? '+' : '-'}{adjustment.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td>
+                    <td className="px-4 py-3 text-right">{adjustment.balanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td>
+                    <td className="px-4 py-3 text-right font-semibold">{adjustment.balanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td>
+                    <td className="max-w-[260px] px-4 py-3">{adjustment.status === 'VOID' && adjustment.voidReason ? <><span className="font-semibold text-expense">Anulado: </span>{adjustment.voidReason}</> : adjustment.observation || '-'}</td>
+                    <td className="px-4 py-3">{adjustment.user?.name || '-'}</td>
+                    <td className="px-4 py-3"><Badge tone={adjustment.status === 'VOID' ? 'expense' : 'income'}>{adjustment.status === 'VOID' ? 'Anulado' : 'Activo'}</Badge></td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        {isAdmin && adjustment.status === 'ACTIVE' && <>
+                          <Button variant="ghost" className="px-2" title="Editar cantidad" onClick={() => openEditAdjustment(adjustment)}><Pencil className="h-4 w-4" /></Button>
+                          <Button variant="ghost" className="px-2 text-expense" title="Anular ajuste" onClick={() => { setVoidingAdjustment(adjustment); setAdjustmentVoidReason(''); }}><Ban className="h-4 w-4" /></Button>
+                        </>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="p-4"><Pagination page={adjustments.page} pageSize={adjustments.pageSize} total={adjustments.total} onChange={setAdjustmentPage} /></div>
+        </> : <EmptyState title="Sin ajustes registrados" />}
+      </Card>}
 
       {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><Truck className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Traslados de inventario</h2><p className="text-xs text-mute">Movimientos donde {pointName} participa como origen o destino.</p></div></div>{transfersLoading || !transfers ? <div className="p-6"><Spinner /></div> : transfers.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Origen → destino</th><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3">Saldo origen</th><th className="px-4 py-3">Saldo destino</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{transfers.data.map((movement) => <tr key={movement.id}><td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3">{dateInput(movement.transferDate)}</td><td className="px-4 py-3 font-semibold">{movement.originPointOfSale?.name || '-'} <span className="text-mute">→</span> {movement.destinationPointOfSale?.name || '-'}</td><td className="px-4 py-3 font-semibold">{movement.product?.description || '-'}</td><td className="px-4 py-3 text-right font-bold">{movement.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{movement.originBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.originBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td><td className="px-4 py-3">{movement.destinationBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.destinationBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td><td className="max-w-[260px] px-4 py-3">{movement.observation || '-'}</td><td className="px-4 py-3">{movement.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={transfers.page} pageSize={transfers.pageSize} total={transfers.total} onChange={setTransferPage} /></div></> : <EmptyState title="Sin traslados registrados" />}</Card>}
 
@@ -364,27 +466,68 @@ export function InventoryPage() {
         </form>
       </Modal>
 
-      <Modal open={isAdmin && adjustmentModalOpen} onClose={() => setAdjustmentModalOpen(false)} title="Ajustar inventario">
+      <Modal
+        open={isAdmin && adjustmentModalOpen}
+        onClose={() => { setAdjustmentModalOpen(false); setEditingAdjustment(null); }}
+        title={editingAdjustment ? `Editar ajuste ${editingAdjustment.documentNumber}` : 'Ajustar inventario'}
+      >
         <form onSubmit={submitAdjustment} className="space-y-4">
-          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">El ajuste quedará registrado con tu usuario y el saldo final del producto.</p>
+          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">
+            {editingAdjustment
+              ? 'Al guardar, el sistema aplicará solamente la diferencia frente a la cantidad registrada y conservará el historial.'
+              : 'El ajuste quedará registrado con tu usuario y el saldo final del producto.'}
+          </p>
           <Field label="Bodega / punto de venta">
-            <Select value={adjustmentPointOfSaleId} onChange={(event) => { setAdjustmentPointOfSaleId(event.target.value); setAdjustmentProductId(''); setAdjustmentError(''); }}>
+            <Select disabled={Boolean(editingAdjustment)} value={adjustmentPointOfSaleId} onChange={(event) => { setAdjustmentPointOfSaleId(event.target.value); setAdjustmentProductId(''); setAdjustmentError(''); }}>
               <option value="">Selecciona</option>
               {points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}
             </Select>
           </Field>
           <Field label="Producto">
-            <SearchableSelect value={adjustmentProductId} onChange={setAdjustmentProductId} options={adjustmentProductOptions} disabled={!adjustmentPointOfSaleId || adjustmentProductsLoading} placeholder={adjustmentProductsLoading ? 'Cargando productos...' : 'Buscar producto'} emptyMessage="No hay productos activos" />
+            {editingAdjustment
+              ? <Input disabled value={editingAdjustment.product?.description || adjustmentStock?.productDescription || '-'} />
+              : <SearchableSelect value={adjustmentProductId} onChange={setAdjustmentProductId} options={adjustmentProductOptions} disabled={!adjustmentPointOfSaleId || adjustmentProductsLoading} placeholder={adjustmentProductsLoading ? 'Cargando productos...' : 'Buscar producto'} emptyMessage="No hay productos activos" />}
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Tipo de ajuste"><Select value={adjustmentOperation} onChange={(event) => setAdjustmentOperation(event.target.value as 'ADD' | 'SUBTRACT')}><option value="ADD">Sumar al inventario</option><option value="SUBTRACT">Restar del inventario</option></Select></Field>
+            <Field label="Tipo de ajuste"><Select disabled={Boolean(editingAdjustment)} value={adjustmentOperation} onChange={(event) => setAdjustmentOperation(event.target.value as 'ADD' | 'SUBTRACT')}><option value="ADD">Sumar al inventario</option><option value="SUBTRACT">Restar del inventario</option></Select></Field>
             <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={adjustmentQuantity} onChange={(event) => setAdjustmentQuantity(event.target.value)} /></Field>
           </div>
           <Field label="Observación" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={1000} value={adjustmentObservation} onChange={(event) => setAdjustmentObservation(event.target.value)} placeholder="Motivo o soporte del ajuste" /></Field>
-          {adjustmentProduct && resultingQuantity !== null && <div className={`rounded-lg px-3 py-3 text-sm ${resultingQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}><p>Existencia actual: <strong>{adjustmentProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del ajuste: <strong>{resultingQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{resultingQuantity < 0 && <p className="mt-1 font-semibold">La existencia no puede quedar negativa.</p>}</div>}
+          {currentAdjustmentStock !== undefined && resultingQuantity !== null && <div className={`rounded-lg px-3 py-3 text-sm ${resultingQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}>
+            {editingAdjustment && <p>Cantidad registrada: <strong>{editingAdjustment.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>}
+            <p>Existencia actual: <strong>{currentAdjustmentStock.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>
+            <p>Existencia después del ajuste: <strong>{resultingQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>
+            {resultingQuantity < 0 && <p className="mt-1 font-semibold">La existencia no puede quedar negativa.</p>}
+          </div>}
           {adjustmentError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{adjustmentError}</p>}
-          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setAdjustmentModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={adjust.isPending || !adjustmentProductId || resultingQuantity === null || resultingQuantity < 0}>{adjust.isPending ? 'Guardando...' : 'Aplicar ajuste'}</Button></div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" disabled={adjust.isPending || updateAdjustment.isPending} onClick={() => { setAdjustmentModalOpen(false); setEditingAdjustment(null); }}>Cancelar</Button>
+            <Button type="submit" disabled={adjust.isPending || updateAdjustment.isPending || !adjustmentProductId || resultingQuantity === null || resultingQuantity < 0}>
+              {adjust.isPending || updateAdjustment.isPending ? 'Guardando...' : editingAdjustment ? 'Guardar cambios' : 'Aplicar ajuste'}
+            </Button>
+          </div>
         </form>
+      </Modal>
+
+      <Modal open={isAdmin && Boolean(voidingAdjustment)} onClose={() => { setVoidingAdjustment(null); setAdjustmentVoidReason(''); }} title="Anular ajuste de inventario">
+        <div className="space-y-4">
+          <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm text-expense">
+            Esta acción revertirá del inventario el efecto vigente de <strong>{voidingAdjustment?.documentNumber}</strong>. El documento se conservará marcado como anulado.
+          </p>
+          <div className="rounded-lg bg-paper px-3 py-3 text-sm">
+            <p>Producto: <strong>{voidingAdjustment?.product?.description || '-'}</strong></p>
+            <p>Ajuste: <strong>{voidingAdjustment?.operation === 'ADD' ? '+' : '-'}{voidingAdjustment?.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>
+          </div>
+          <Field label="Motivo de anulación" hint="Opcional">
+            <textarea className="input min-h-20 resize-y" maxLength={191} value={adjustmentVoidReason} onChange={(event) => setAdjustmentVoidReason(event.target.value)} placeholder="Motivo de la anulación" />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" disabled={voidAdjustment.isPending} onClick={() => { setVoidingAdjustment(null); setAdjustmentVoidReason(''); }}>Cancelar</Button>
+            <Button variant="danger" disabled={voidAdjustment.isPending || !voidingAdjustment} onClick={() => voidingAdjustment && voidAdjustment.mutate({ id: voidingAdjustment.id, reason: adjustmentVoidReason })}>
+              {voidAdjustment.isPending ? 'Anulando...' : 'Anular ajuste'}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       <Modal open={isAdmin && transferModalOpen} onClose={() => setTransferModalOpen(false)} title="Nuevo traslado de inventario" size="large">
