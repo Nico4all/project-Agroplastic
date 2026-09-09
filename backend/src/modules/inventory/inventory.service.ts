@@ -14,8 +14,10 @@ import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 import { UpdateInventoryAdjustmentDto } from './dto/update-inventory-adjustment.dto';
 import { UpdateInventoryEntryDto } from './dto/update-inventory-entry.dto';
+import { UpdateInventoryTransferDto } from './dto/update-inventory-transfer.dto';
 import { VoidInventoryAdjustmentDto } from './dto/void-inventory-adjustment.dto';
 import { VoidInventoryEntryDto } from './dto/void-inventory-entry.dto';
+import { VoidInventoryTransferDto } from './dto/void-inventory-transfer.dto';
 
 @Injectable()
 export class InventoryService {
@@ -909,6 +911,119 @@ export class InventoryService {
     return this.serializeTransfer(transfer);
   }
 
+  async updateTransfer(userId: string, id: string, dto: UpdateInventoryTransferDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const quantity = new Prisma.Decimal(dto.quantity);
+    const transfer = await this.prisma.$transaction(async (tx) => {
+      await this.lockInventoryTransfer(tx, id);
+      const current = await tx.inventoryTransfer.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Traslado de inventario no encontrado');
+      if (current.status === RecordStatus.VOID) throw new BadRequestException('No puedes editar un traslado anulado');
+
+      const appliedRows = await tx.inventoryMovement.groupBy({
+        by: ['pointOfSaleId'],
+        where: { inventoryTransferId: id, productId: current.productId },
+        _sum: { quantityChange: true },
+      });
+      const appliedByPoint = new Map(
+        appliedRows.map((row) => [row.pointOfSaleId, row._sum.quantityChange || new Prisma.Decimal(0)]),
+      );
+      const targetByPoint = new Map([
+        [current.originPointOfSaleId, quantity.negated()],
+        [current.destinationPointOfSaleId, quantity],
+      ]);
+      const claimed = await tx.inventoryTransfer.updateMany({
+        where: { id, status: RecordStatus.ACTIVE, quantity: current.quantity },
+        data: {
+          quantity,
+          originBalanceAfter: current.originBalanceBefore.minus(quantity),
+          destinationBalanceAfter: current.destinationBalanceBefore.add(quantity),
+          observation: dto.observation?.trim() || null,
+        },
+      });
+      if (claimed.count !== 1) throw new BadRequestException('El traslado cambió mientras lo editabas. Intenta de nuevo');
+
+      for (const pointId of [current.originPointOfSaleId, current.destinationPointOfSaleId].sort()) {
+        const applied = appliedByPoint.get(pointId) || new Prisma.Decimal(0);
+        const target = targetByPoint.get(pointId)!;
+        const difference = target.minus(applied);
+        if (difference.isZero()) continue;
+        const stock = await this.applyInventoryDelta(tx, pointId, current.productId, difference, 'editar el traslado');
+        await tx.inventoryMovement.create({
+          data: {
+            pointOfSaleId: pointId,
+            productId: current.productId,
+            userId: actor.id,
+            inventoryTransferId: current.id,
+            type: pointId === current.originPointOfSaleId
+              ? InventoryMovementType.TRANSFER_EDIT_OUT
+              : InventoryMovementType.TRANSFER_EDIT_IN,
+            quantityChange: difference,
+            balanceAfter: stock.quantity,
+          },
+        });
+      }
+
+      return tx.inventoryTransfer.findUniqueOrThrow({ where: { id }, include: this.transferRelations() });
+    });
+    return this.serializeTransfer(transfer);
+  }
+
+  async voidTransfer(userId: string, id: string, dto: VoidInventoryTransferDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const transfer = await this.prisma.$transaction(async (tx) => {
+      await this.lockInventoryTransfer(tx, id);
+      const current = await tx.inventoryTransfer.findUnique({ where: { id }, include: this.transferRelations() });
+      if (!current) throw new NotFoundException('Traslado de inventario no encontrado');
+      if (current.status === RecordStatus.VOID) return current;
+
+      const appliedRows = await tx.inventoryMovement.groupBy({
+        by: ['pointOfSaleId'],
+        where: { inventoryTransferId: id, productId: current.productId },
+        _sum: { quantityChange: true },
+      });
+      const claimed = await tx.inventoryTransfer.updateMany({
+        where: { id, status: RecordStatus.ACTIVE },
+        data: {
+          status: RecordStatus.VOID,
+          voidReason: dto.reason?.trim() || null,
+          voidedAt: new Date(),
+          voidedByUserId: actor.id,
+        },
+      });
+      if (claimed.count !== 1) throw new BadRequestException('El traslado ya fue anulado');
+
+      for (const row of [...appliedRows].sort((a, b) => a.pointOfSaleId.localeCompare(b.pointOfSaleId))) {
+        const applied = row._sum.quantityChange || new Prisma.Decimal(0);
+        const reversal = applied.negated();
+        if (reversal.isZero()) continue;
+        const stock = await this.applyInventoryDelta(
+          tx,
+          row.pointOfSaleId,
+          current.productId,
+          reversal,
+          'anular el traslado',
+        );
+        await tx.inventoryMovement.create({
+          data: {
+            pointOfSaleId: row.pointOfSaleId,
+            productId: current.productId,
+            userId: actor.id,
+            inventoryTransferId: current.id,
+            type: row.pointOfSaleId === current.originPointOfSaleId
+              ? InventoryMovementType.TRANSFER_VOID_OUT
+              : InventoryMovementType.TRANSFER_VOID_IN,
+            quantityChange: reversal,
+            balanceAfter: stock.quantity,
+          },
+        });
+      }
+
+      return tx.inventoryTransfer.findUniqueOrThrow({ where: { id }, include: this.transferRelations() });
+    });
+    return this.serializeTransfer(transfer);
+  }
+
   private async resolvePointOfSale(actor: User, requested?: string) {
     const pointOfSaleId = isAdminRole(actor.role) ? requested || actor.pointOfSaleId : actor.pointOfSaleId;
     if (!pointOfSaleId) throw new BadRequestException('Selecciona un punto de venta');
@@ -952,7 +1067,19 @@ export class InventoryService {
           },
           inventoryAdjustmentId: { not: null },
         },
-        { type: { in: [InventoryMovementType.TRANSFER_IN, InventoryMovementType.TRANSFER_OUT] }, inventoryTransferId: { not: null } },
+        {
+          type: {
+            in: [
+              InventoryMovementType.TRANSFER_IN,
+              InventoryMovementType.TRANSFER_OUT,
+              InventoryMovementType.TRANSFER_EDIT_IN,
+              InventoryMovementType.TRANSFER_EDIT_OUT,
+              InventoryMovementType.TRANSFER_VOID_IN,
+              InventoryMovementType.TRANSFER_VOID_OUT,
+            ],
+          },
+          inventoryTransferId: { not: null },
+        },
       ],
       ...(Object.keys(createdAt).length ? { createdAt } : {}),
     };
@@ -996,6 +1123,8 @@ export class InventoryService {
           id: true,
           documentNumber: true,
           observation: true,
+          status: true,
+          voidReason: true,
           originPointOfSale: { select: { id: true, name: true } },
           destinationPointOfSale: { select: { id: true, name: true } },
         },
@@ -1015,6 +1144,13 @@ export class InventoryService {
       InventoryMovementType.ADJUSTMENT_EDIT,
       InventoryMovementType.ADJUSTMENT_VOID,
     ].includes(row.type);
+    const isTransferIn = [
+      InventoryMovementType.TRANSFER_IN,
+      InventoryMovementType.TRANSFER_EDIT_IN,
+      InventoryMovementType.TRANSFER_VOID_IN,
+    ].includes(row.type);
+    const isTransferEdit = [InventoryMovementType.TRANSFER_EDIT_IN, InventoryMovementType.TRANSFER_EDIT_OUT].includes(row.type);
+    const isTransferVoid = [InventoryMovementType.TRANSFER_VOID_IN, InventoryMovementType.TRANSFER_VOID_OUT].includes(row.type);
     const document = isEntry ? row.inventoryEntry : isOrder ? row.order : isAdjustment ? row.inventoryAdjustment : row.inventoryTransfer;
     const thirdPartyName = isEntry
       ? document.supplierName
@@ -1022,7 +1158,7 @@ export class InventoryService {
         ? document.clientName
         : isAdjustment
           ? 'Ajuste interno'
-          : row.type === InventoryMovementType.TRANSFER_IN
+          : isTransferIn
             ? document.originPointOfSale.name
             : document.destinationPointOfSale.name;
     const detail = isEntry
@@ -1041,7 +1177,7 @@ export class InventoryService {
             : row.type === InventoryMovementType.ADJUSTMENT_VOID
               ? `Reversión por anulación · ${document.voidReason || 'Sin motivo'}`
               : `${document.status === RecordStatus.VOID ? 'Ajuste anulado' : document.operation === 'ADD' ? 'Suma' : 'Resta'} · ${document.observation || 'Sin observación'}`
-          : `${document.originPointOfSale.name} → ${document.destinationPointOfSale.name}${document.observation ? ` · ${document.observation}` : ''}`;
+          : `${isTransferEdit ? 'Corrección de traslado · ' : isTransferVoid ? 'Reversión por anulación · ' : ''}${document.originPointOfSale.name} → ${document.destinationPointOfSale.name}${isTransferVoid ? ` · ${document.voidReason || 'Sin motivo'}` : document.observation ? ` · ${document.observation}` : ''}`;
     return {
       id: row.id,
       date: row.createdAt,
@@ -1079,13 +1215,17 @@ export class InventoryService {
     const adjustmentVoid = byType.get(InventoryMovementType.ADJUSTMENT_VOID);
     const transferIn = byType.get(InventoryMovementType.TRANSFER_IN);
     const transferOut = byType.get(InventoryMovementType.TRANSFER_OUT);
+    const transferEditIn = byType.get(InventoryMovementType.TRANSFER_EDIT_IN);
+    const transferEditOut = byType.get(InventoryMovementType.TRANSFER_EDIT_OUT);
+    const transferVoidIn = byType.get(InventoryMovementType.TRANSFER_VOID_IN);
+    const transferVoidOut = byType.get(InventoryMovementType.TRANSFER_VOID_OUT);
     const count = (row: any) => row?._count?._all || 0;
     return {
       movements,
       entries: count(entries) + count(entryEdit) + count(entryVoid),
       orders: count(orders),
       adjustments: count(adjustmentAdd) + count(adjustmentSubtract) + count(adjustmentEdit) + count(adjustmentVoid),
-      transfers: count(transferIn) + count(transferOut),
+      transfers: count(transferIn) + count(transferOut) + count(transferEditIn) + count(transferEditOut) + count(transferVoidIn) + count(transferVoidOut),
       totalInput,
       totalOutput,
       currentInventory,
@@ -1105,6 +1245,10 @@ export class InventoryService {
       [InventoryMovementType.ADJUSTMENT_VOID]: 'Anulación de ajuste',
       [InventoryMovementType.TRANSFER_IN]: 'Traslado entrada',
       [InventoryMovementType.TRANSFER_OUT]: 'Traslado salida',
+      [InventoryMovementType.TRANSFER_EDIT_IN]: 'Edición traslado entrada',
+      [InventoryMovementType.TRANSFER_EDIT_OUT]: 'Edición traslado salida',
+      [InventoryMovementType.TRANSFER_VOID_IN]: 'Anulación traslado entrada',
+      [InventoryMovementType.TRANSFER_VOID_OUT]: 'Anulación traslado salida',
     };
     return labels[type];
   }
@@ -1225,9 +1369,14 @@ export class InventoryService {
     await tx.$queryRaw`SELECT id FROM inventory_entries WHERE id = ${id} FOR UPDATE`;
   }
 
+  private async lockInventoryTransfer(tx: Prisma.TransactionClient, id: string) {
+    await tx.$queryRaw`SELECT id FROM inventory_transfers WHERE id = ${id} FOR UPDATE`;
+  }
+
   private transferRelations() {
     return {
       user: { select: { id: true, name: true, username: true } },
+      voidedBy: { select: { id: true, name: true, username: true } },
       originPointOfSale: { select: { id: true, name: true, code: true } },
       destinationPointOfSale: { select: { id: true, name: true, code: true } },
       product: { select: { id: true, description: true } },

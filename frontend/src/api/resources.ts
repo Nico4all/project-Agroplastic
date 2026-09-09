@@ -158,6 +158,10 @@ export const inventoryApi = {
     quantity: number;
     observation?: string;
   }) => (await api.post<InventoryTransfer>('/inventory/transfers', payload)).data,
+  updateTransfer: async (id: string, payload: { quantity: number; observation?: string }) =>
+    (await api.patch<InventoryTransfer>(`/inventory/transfers/${id}`, payload)).data,
+  voidTransfer: async (id: string, payload: { reason?: string }) =>
+    (await api.patch<InventoryTransfer>(`/inventory/transfers/${id}/void`, payload)).data,
   transfers: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryTransfer>>('/inventory/transfers', { params })).data,
 };

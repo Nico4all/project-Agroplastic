@@ -254,8 +254,13 @@ export type InventoryTransfer = {
   destinationBalanceAfter: number;
   observation?: string | null;
   transferDate: string;
+  status: RecordStatus;
+  voidReason?: string | null;
+  voidedAt?: string | null;
+  voidedByUserId?: string | null;
   createdAt: string;
   user?: Pick<User, 'id' | 'name' | 'username'>;
+  voidedBy?: Pick<User, 'id' | 'name' | 'username'> | null;
   originPointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
   destinationPointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
   product?: { id: string; description: string };
@@ -264,7 +269,7 @@ export type InventoryTransfer = {
 export type ProductHistoryRow = {
   id: string;
   date: string;
-  movementType: 'ENTRY' | 'ENTRY_EDIT' | 'ENTRY_VOID' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'ADJUSTMENT_EDIT' | 'ADJUSTMENT_VOID' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+  movementType: 'ENTRY' | 'ENTRY_EDIT' | 'ENTRY_VOID' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'ADJUSTMENT_EDIT' | 'ADJUSTMENT_VOID' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'TRANSFER_EDIT_IN' | 'TRANSFER_EDIT_OUT' | 'TRANSFER_VOID_IN' | 'TRANSFER_VOID_OUT';
   documentId: string;
   documentNumber: string;
   thirdPartyName: string;

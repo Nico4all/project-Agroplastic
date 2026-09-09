@@ -81,6 +81,10 @@ enum InventoryMovementType {
   ADJUSTMENT_VOID
   TRANSFER_OUT
   TRANSFER_IN
+  TRANSFER_EDIT_OUT
+  TRANSFER_EDIT_IN
+  TRANSFER_VOID_OUT
+  TRANSFER_VOID_IN
 }
 
 enum InventoryAdjustmentOperation {
@@ -117,7 +121,8 @@ model User {
   voidedInventoryEntries InventoryEntry[]      @relation("InventoryEntryVoidUser")
   inventoryAdjustments InventoryAdjustment[]       @relation("InventoryAdjustmentCreator")
   voidedInventoryAdjustments InventoryAdjustment[] @relation("InventoryAdjustmentVoidUser")
-  inventoryTransfers   InventoryTransfer[]
+  inventoryTransfers   InventoryTransfer[]      @relation("InventoryTransferCreator")
+  voidedInventoryTransfers InventoryTransfer[]  @relation("InventoryTransferVoidUser")
   inventoryMovements   InventoryMovement[]
   portfolioCollections PortfolioCollection[]
   voidedIncomes        Income[]                @relation("IncomeVoidUser")
@@ -562,9 +567,14 @@ model InventoryTransfer {
   destinationBalanceAfter  Decimal             @map("destination_balance_after") @db.Decimal(14, 3)
   observation              String?             @db.Text
   transferDate             DateTime            @default(now()) @map("transfer_date")
+  status                   RecordStatus        @default(ACTIVE)
+  voidReason               String?             @map("void_reason") @db.Text
+  voidedAt                 DateTime?            @map("voided_at")
+  voidedByUserId           String?              @map("voided_by_user_id")
   createdAt                DateTime            @default(now()) @map("created_at")
   updatedAt                DateTime            @updatedAt @map("updated_at")
-  user                     User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user                     User                @relation("InventoryTransferCreator", fields: [userId], references: [id], onDelete: Restrict)
+  voidedBy                 User?               @relation("InventoryTransferVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
   originPointOfSale        PointOfSale         @relation("InventoryTransferOrigin", fields: [originPointOfSaleId], references: [id], onDelete: Restrict)
   destinationPointOfSale   PointOfSale         @relation("InventoryTransferDestination", fields: [destinationPointOfSaleId], references: [id], onDelete: Restrict)
   product                  Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
@@ -575,6 +585,8 @@ model InventoryTransfer {
   @@index([destinationPointOfSaleId, transferDate])
   @@index([productId, transferDate])
   @@index([transferDate])
+  @@index([status])
+  @@index([voidedByUserId])
   @@map("inventory_transfers")
 }
 

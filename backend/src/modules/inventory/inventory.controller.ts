@@ -9,8 +9,10 @@ import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 import { UpdateInventoryEntryDto } from './dto/update-inventory-entry.dto';
 import { UpdateInventoryAdjustmentDto } from './dto/update-inventory-adjustment.dto';
+import { UpdateInventoryTransferDto } from './dto/update-inventory-transfer.dto';
 import { VoidInventoryEntryDto } from './dto/void-inventory-entry.dto';
 import { VoidInventoryAdjustmentDto } from './dto/void-inventory-adjustment.dto';
+import { VoidInventoryTransferDto } from './dto/void-inventory-transfer.dto';
 import { InventoryService } from './inventory.service';
 
 @UseGuards(JwtAuthGuard)
@@ -126,6 +128,26 @@ export class InventoryController {
   @Post('transfers')
   transferStock(@CurrentUser() user: { userId: string }, @Body() dto: CreateInventoryTransferDto) {
     return this.inventory.transferStock(user.userId, dto);
+  }
+
+  @Patch('transfers/:id')
+  @HttpCode(200)
+  updateTransfer(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateInventoryTransferDto,
+  ) {
+    return this.inventory.updateTransfer(user.userId, id, dto);
+  }
+
+  @Patch('transfers/:id/void')
+  @HttpCode(200)
+  voidTransfer(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: VoidInventoryTransferDto,
+  ) {
+    return this.inventory.voidTransfer(user.userId, id, dto);
   }
 
   private sendFile(res: Response, file: { buffer: Buffer; filename: string }, contentType: string) {

@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
-import { InventoryAdjustment, InventoryEntry } from '../types';
+import { InventoryAdjustment, InventoryEntry, InventoryTransfer } from '../types';
 import { dateInput } from '../utils/format';
 import { downloadBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
@@ -20,12 +20,12 @@ function getApiError(error: any, fallback: string) {
 }
 
 function movementLabel(type: string) {
-  return ({ ENTRY: 'Entrada', ENTRY_EDIT: 'Edición entrada', ENTRY_VOID: 'Anulación entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', ADJUSTMENT_EDIT: 'Edición ajuste', ADJUSTMENT_VOID: 'Anulación ajuste', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida' } as Record<string, string>)[type] || type;
+  return ({ ENTRY: 'Entrada', ENTRY_EDIT: 'Edición entrada', ENTRY_VOID: 'Anulación entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', ADJUSTMENT_EDIT: 'Edición ajuste', ADJUSTMENT_VOID: 'Anulación ajuste', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida', TRANSFER_EDIT_IN: 'Edición traslado entrada', TRANSFER_EDIT_OUT: 'Edición traslado salida', TRANSFER_VOID_IN: 'Anulación traslado entrada', TRANSFER_VOID_OUT: 'Anulación traslado salida' } as Record<string, string>)[type] || type;
 }
 
 function movementTone(type: string): 'income' | 'expense' | 'transfer' | 'neutral' {
-  if (['ENTRY', 'ORDER_VOID', 'ADJUSTMENT_ADD', 'TRANSFER_IN'].includes(type)) return 'income';
-  if (['ENTRY_VOID', 'ADJUSTMENT_SUBTRACT', 'ADJUSTMENT_VOID', 'TRANSFER_OUT'].includes(type)) return 'expense';
+  if (['ENTRY', 'ORDER_VOID', 'ADJUSTMENT_ADD', 'TRANSFER_IN', 'TRANSFER_VOID_OUT'].includes(type)) return 'income';
+  if (['ENTRY_VOID', 'ADJUSTMENT_SUBTRACT', 'ADJUSTMENT_VOID', 'TRANSFER_OUT', 'TRANSFER_VOID_IN'].includes(type)) return 'expense';
   return type === 'ORDER' ? 'neutral' : 'transfer';
 }
 
@@ -67,6 +67,9 @@ export function InventoryPage() {
   const [transferObservation, setTransferObservation] = useState('');
   const [transferError, setTransferError] = useState('');
   const [transferPage, setTransferPage] = useState(1);
+  const [editingTransfer, setEditingTransfer] = useState<InventoryTransfer | null>(null);
+  const [voidingTransfer, setVoidingTransfer] = useState<InventoryTransfer | null>(null);
+  const [transferVoidReason, setTransferVoidReason] = useState('');
   const [historyProductId, setHistoryProductId] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [historyDates, setHistoryDates] = useState({ fromDate: '', toDate: '' });
@@ -100,8 +103,8 @@ export function InventoryPage() {
     enabled: isAdmin && adjustmentModalOpen && Boolean(adjustmentPointOfSaleId),
   });
   const { data: transferProducts = [], isLoading: transferProductsLoading } = useQuery({
-    queryKey: ['products', 'inventory-transfer', transferOriginId],
-    queryFn: () => productsApi.list({ pointOfSaleId: transferOriginId, isActive: true }),
+    queryKey: ['products', 'inventory-transfer', transferOriginId, Boolean(editingTransfer)],
+    queryFn: () => productsApi.list({ pointOfSaleId: transferOriginId, ...(editingTransfer ? {} : { isActive: true }) }),
     enabled: isAdmin && transferModalOpen && Boolean(transferOriginId),
   });
   const adjustmentParams = useMemo(() => ({ page: adjustmentPage, pageSize: 8, ...baseParams }), [adjustmentPage, baseParams]);
@@ -232,6 +235,31 @@ export function InventoryPage() {
     onError: (err) => setTransferError(getApiError(err, 'No se pudo realizar el traslado')),
   });
 
+  const updateTransfer = useMutation({
+    mutationFn: ({ id, quantity, observation }: { id: string; quantity: number; observation?: string }) =>
+      inventoryApi.updateTransfer(id, { quantity, observation }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(`Traslado ${updated.documentNumber} actualizado`);
+      setTransferModalOpen(false);
+      setEditingTransfer(null);
+    },
+    onError: (err) => setTransferError(getApiError(err, 'No se pudo editar el traslado')),
+  });
+
+  const voidTransfer = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => inventoryApi.voidTransfer(id, { reason }),
+    onSuccess: (voided) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(`Traslado ${voided.documentNumber} anulado`);
+      setVoidingTransfer(null);
+      setTransferVoidReason('');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo anular el traslado'), 'error'),
+  });
+
   const openCreate = () => {
     setEditingEntry(null);
     setSupplierName('');
@@ -278,12 +306,24 @@ export function InventoryPage() {
   };
 
   const openTransfer = () => {
+    setEditingTransfer(null);
     const origin = pointOfSaleId || points.find((point) => point.isActive)?.id || '';
     setTransferOriginId(origin);
     setTransferDestinationId(points.find((point) => point.isActive && point.id !== origin)?.id || '');
     setTransferProductId('');
     setTransferQuantity('1');
     setTransferObservation('');
+    setTransferError('');
+    setTransferModalOpen(true);
+  };
+
+  const openEditTransfer = (movement: InventoryTransfer) => {
+    setEditingTransfer(movement);
+    setTransferOriginId(movement.originPointOfSaleId);
+    setTransferDestinationId(movement.destinationPointOfSaleId);
+    setTransferProductId(movement.productId);
+    setTransferQuantity(String(movement.quantity));
+    setTransferObservation(movement.observation || '');
     setTransferError('');
     setTransferModalOpen(true);
   };
@@ -361,13 +401,17 @@ export function InventoryPage() {
     if (!transferProductId) return setTransferError('Selecciona un producto');
     const quantity = Number(transferQuantity);
     if (!Number.isFinite(quantity) || quantity <= 0) return setTransferError('Ingresa una cantidad válida');
-    await transfer.mutateAsync({
-      originPointOfSaleId: transferOriginId,
-      destinationPointOfSaleId: transferDestinationId,
-      productId: transferProductId,
-      quantity,
-      observation: transferObservation,
-    });
+    if (editingTransfer) {
+      await updateTransfer.mutateAsync({ id: editingTransfer.id, quantity, observation: transferObservation });
+    } else {
+      await transfer.mutateAsync({
+        originPointOfSaleId: transferOriginId,
+        destinationPointOfSaleId: transferDestinationId,
+        productId: transferProductId,
+        quantity,
+        observation: transferObservation,
+      });
+    }
   }
 
   const adjustmentProduct = adjustmentProducts.find((product) => product.id === adjustmentProductId);
@@ -387,6 +431,9 @@ export function InventoryPage() {
   }));
   const transferProduct = transferProducts.find((product) => product.id === transferProductId);
   const transferAmount = Number(transferQuantity) || 0;
+  const resultingOriginQuantity = transferProduct
+    ? transferProduct.quantity + (editingTransfer?.quantity || 0) - transferAmount
+    : null;
   const transferProductOptions = transferProducts.map((product) => ({
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
@@ -494,7 +541,30 @@ export function InventoryPage() {
         </> : <EmptyState title="Sin ajustes registrados" />}
       </Card>}
 
-      {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="flex items-center gap-2 border-b border-line px-4 py-3"><Truck className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Traslados de inventario</h2><p className="text-xs text-mute">Movimientos donde {pointName} participa como origen o destino.</p></div></div>{transfersLoading || !transfers ? <div className="p-6"><Spinner /></div> : transfers.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Origen → destino</th><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3">Saldo origen</th><th className="px-4 py-3">Saldo destino</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{transfers.data.map((movement) => <tr key={movement.id}><td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3">{dateInput(movement.transferDate)}</td><td className="px-4 py-3 font-semibold">{movement.originPointOfSale?.name || '-'} <span className="text-mute">→</span> {movement.destinationPointOfSale?.name || '-'}</td><td className="px-4 py-3 font-semibold">{movement.product?.description || '-'}</td><td className="px-4 py-3 text-right font-bold">{movement.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td><td className="px-4 py-3">{movement.originBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.originBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td><td className="px-4 py-3">{movement.destinationBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.destinationBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td><td className="max-w-[260px] px-4 py-3">{movement.observation || '-'}</td><td className="px-4 py-3">{movement.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={transfers.page} pageSize={transfers.pageSize} total={transfers.total} onChange={setTransferPage} /></div></> : <EmptyState title="Sin traslados registrados" />}</Card>}
+      {pointOfSaleId && <Card className="overflow-hidden p-0">
+        <div className="flex items-center gap-2 border-b border-line px-4 py-3"><Truck className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Traslados de inventario</h2><p className="text-xs text-mute">Movimientos donde {pointName} participa como origen o destino.</p></div></div>
+        {transfersLoading || !transfers ? <div className="p-6"><Spinner /></div> : transfers.data.length ? <>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1360px] text-sm">
+            <thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Origen → destino</th><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3">Saldo origen</th><th className="px-4 py-3">Saldo destino</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3 text-right">Acciones</th></tr></thead>
+            <tbody className="divide-y divide-line">{transfers.data.map((movement) => <tr key={movement.id} className={movement.status === 'VOID' ? 'bg-expense-soft/25' : ''}>
+              <td className="px-4 py-3 font-mono font-semibold">{movement.documentNumber}</td><td className="px-4 py-3">{dateInput(movement.transferDate)}</td>
+              <td className="px-4 py-3 font-semibold">{movement.originPointOfSale?.name || '-'} <span className="text-mute">→</span> {movement.destinationPointOfSale?.name || '-'}</td>
+              <td className="px-4 py-3 font-semibold">{movement.product?.description || '-'}</td>
+              <td className={`px-4 py-3 text-right font-bold ${movement.status === 'VOID' ? 'text-mute line-through' : ''}`}>{movement.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td>
+              <td className="px-4 py-3">{movement.originBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.originBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td>
+              <td className="px-4 py-3">{movement.destinationBalanceBefore.toLocaleString('es-CO', { maximumFractionDigits: 3 })} → <strong>{movement.destinationBalanceAfter.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></td>
+              <td className="max-w-[260px] px-4 py-3">{movement.status === 'VOID' && movement.voidReason ? <><span className="font-semibold text-expense">Anulado: </span>{movement.voidReason}</> : movement.observation || '-'}</td>
+              <td className="px-4 py-3">{movement.user?.name || '-'}</td>
+              <td className="px-4 py-3"><Badge tone={movement.status === 'VOID' ? 'expense' : 'income'}>{movement.status === 'VOID' ? 'Anulado' : 'Activo'}</Badge></td>
+              <td className="px-4 py-3"><div className="flex justify-end gap-1">{isAdmin && movement.status === 'ACTIVE' && <>
+                <Button variant="ghost" className="px-2" title="Editar traslado" onClick={() => openEditTransfer(movement)}><Pencil className="h-4 w-4" /></Button>
+                <Button variant="ghost" className="px-2 text-expense" title="Anular traslado" onClick={() => { setVoidingTransfer(movement); setTransferVoidReason(''); }}><Ban className="h-4 w-4" /></Button>
+              </>}</div></td>
+            </tr>)}</tbody>
+          </table></div>
+          <div className="p-4"><Pagination page={transfers.page} pageSize={transfers.pageSize} total={transfers.total} onChange={setTransferPage} /></div>
+        </> : <EmptyState title="Sin traslados registrados" />}
+      </Card>}
 
       {pointOfSaleId && <Card className="overflow-hidden p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3"><div className="flex items-center gap-2"><History className="h-4 w-4 text-brand" /><div><h2 className="font-bold">Histórico por producto</h2><p className="text-xs text-mute">Entradas, pedidos, ajustes y traslados con inventario antes y después.</p></div></div><Button variant="secondary" disabled={!historyProductId || historyExporting} onClick={exportProductHistory}><FileSpreadsheet className="h-4 w-4" /> {historyExporting ? 'Generando...' : 'Excel'}</Button></div>
@@ -625,22 +695,39 @@ export function InventoryPage() {
         </div>
       </Modal>
 
-      <Modal open={isAdmin && transferModalOpen} onClose={() => setTransferModalOpen(false)} title="Nuevo traslado de inventario" size="large">
+      <Modal open={isAdmin && transferModalOpen} onClose={() => { setTransferModalOpen(false); setEditingTransfer(null); }} title={editingTransfer ? `Editar traslado ${editingTransfer.documentNumber}` : 'Nuevo traslado de inventario'} size="large">
         <form onSubmit={submitTransfer} className="space-y-4">
-          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">El traslado restará el producto de la bodega de origen y lo sumará en la bodega de destino en una sola operación.</p>
+          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">{editingTransfer ? 'Al guardar, se aplicará solamente la diferencia frente a la cantidad original y se conservará el historial.' : 'El traslado restará el producto de la bodega de origen y lo sumará en la bodega de destino en una sola operación.'}</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Bodega de origen"><Select value={transferOriginId} onChange={(event) => { const origin = event.target.value; setTransferOriginId(origin); setTransferProductId(''); if (transferDestinationId === origin) setTransferDestinationId(''); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
-            <Field label="Bodega de destino"><Select value={transferDestinationId} onChange={(event) => { setTransferDestinationId(event.target.value); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive && point.id !== transferOriginId).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
+            <Field label="Bodega de origen"><Select disabled={Boolean(editingTransfer)} value={transferOriginId} onChange={(event) => { const origin = event.target.value; setTransferOriginId(origin); setTransferProductId(''); if (transferDestinationId === origin) setTransferDestinationId(''); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
+            <Field label="Bodega de destino"><Select disabled={Boolean(editingTransfer)} value={transferDestinationId} onChange={(event) => { setTransferDestinationId(event.target.value); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive && point.id !== transferOriginId).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
           </div>
           <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-            <Field label="Producto"><SearchableSelect value={transferProductId} onChange={setTransferProductId} options={transferProductOptions} disabled={!transferOriginId || transferProductsLoading} placeholder={transferProductsLoading ? 'Cargando productos...' : 'Buscar producto en origen'} emptyMessage="No hay productos activos en el origen" /></Field>
+            <Field label="Producto">{editingTransfer ? <Input disabled value={editingTransfer.product?.description || transferProduct?.description || '-'} /> : <SearchableSelect value={transferProductId} onChange={setTransferProductId} options={transferProductOptions} disabled={!transferOriginId || transferProductsLoading} placeholder={transferProductsLoading ? 'Cargando productos...' : 'Buscar producto en origen'} emptyMessage="No hay productos activos en el origen" />}</Field>
             <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={transferQuantity} onChange={(event) => setTransferQuantity(event.target.value)} /></Field>
           </div>
-          {transferProduct && <div className={`rounded-lg px-3 py-3 text-sm ${transferAmount > transferProduct.quantity ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}><p>Existencia en origen: <strong>{transferProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del traslado: <strong>{(transferProduct.quantity - transferAmount).toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{transferAmount > transferProduct.quantity && <p className="mt-1 font-semibold">La cantidad supera la existencia disponible.</p>}</div>}
+          {transferProduct && resultingOriginQuantity !== null && <div className={`rounded-lg px-3 py-3 text-sm ${resultingOriginQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}>{editingTransfer && <p>Cantidad registrada: <strong>{editingTransfer.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>}<p>Existencia actual en origen: <strong>{transferProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del traslado: <strong>{resultingOriginQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{resultingOriginQuantity < 0 && <p className="mt-1 font-semibold">La cantidad supera la existencia disponible.</p>}</div>}
           <Field label="Observación" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={1000} value={transferObservation} onChange={(event) => setTransferObservation(event.target.value)} placeholder="Motivo, transportador o referencia del traslado" /></Field>
           {transferError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{transferError}</p>}
-          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setTransferModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={transfer.isPending || !transferOriginId || !transferDestinationId || !transferProductId || transferAmount <= 0 || Boolean(transferProduct && transferAmount > transferProduct.quantity)}>{transfer.isPending ? 'Trasladando...' : 'Registrar traslado'}</Button></div>
+          <div className="flex justify-end gap-2"><Button variant="secondary" disabled={transfer.isPending || updateTransfer.isPending} onClick={() => { setTransferModalOpen(false); setEditingTransfer(null); }}>Cancelar</Button><Button type="submit" disabled={transfer.isPending || updateTransfer.isPending || !transferOriginId || !transferDestinationId || !transferProductId || transferAmount <= 0 || resultingOriginQuantity === null || resultingOriginQuantity < 0}>{transfer.isPending || updateTransfer.isPending ? 'Guardando...' : editingTransfer ? 'Guardar cambios' : 'Registrar traslado'}</Button></div>
         </form>
+      </Modal>
+
+      <Modal open={isAdmin && Boolean(voidingTransfer)} onClose={() => { setVoidingTransfer(null); setTransferVoidReason(''); }} title="Anular traslado de inventario">
+        <div className="space-y-4">
+          <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm text-expense">Esta acción devolverá la cantidad vigente a la bodega de origen y la retirará de la bodega de destino. El documento se conservará marcado como anulado.</p>
+          <div className="rounded-lg bg-paper px-3 py-3 text-sm">
+            <p>Documento: <strong>{voidingTransfer?.documentNumber || '-'}</strong></p>
+            <p>Ruta: <strong>{voidingTransfer?.originPointOfSale?.name || '-'} → {voidingTransfer?.destinationPointOfSale?.name || '-'}</strong></p>
+            <p>Producto: <strong>{voidingTransfer?.product?.description || '-'}</strong></p>
+            <p>Cantidad: <strong>{voidingTransfer?.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>
+          </div>
+          <Field label="Motivo de anulación" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={191} value={transferVoidReason} onChange={(event) => setTransferVoidReason(event.target.value)} placeholder="Motivo de la anulación" /></Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" disabled={voidTransfer.isPending} onClick={() => { setVoidingTransfer(null); setTransferVoidReason(''); }}>Cancelar</Button>
+            <Button variant="danger" disabled={voidTransfer.isPending || !voidingTransfer} onClick={() => voidingTransfer && voidTransfer.mutate({ id: voidingTransfer.id, reason: transferVoidReason })}>{voidTransfer.isPending ? 'Anulando...' : 'Anular traslado'}</Button>
+          </div>
+        </div>
       </Modal>
     </section>
   );
