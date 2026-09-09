@@ -204,8 +204,13 @@ export type InventoryEntry = {
   remittanceNumber?: string | null;
   observations?: string | null;
   entryDate: string;
+  status: RecordStatus;
+  voidReason?: string | null;
+  voidedAt?: string | null;
+  voidedByUserId?: string | null;
   createdAt: string;
   user?: Pick<User, 'id' | 'name' | 'username'>;
+  voidedBy?: Pick<User, 'id' | 'name' | 'username'> | null;
   pointOfSale?: Pick<PointOfSale, 'id' | 'name' | 'code'>;
   items: InventoryEntryItem[];
 };
@@ -259,7 +264,7 @@ export type InventoryTransfer = {
 export type ProductHistoryRow = {
   id: string;
   date: string;
-  movementType: 'ENTRY' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'ADJUSTMENT_EDIT' | 'ADJUSTMENT_VOID' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+  movementType: 'ENTRY' | 'ENTRY_EDIT' | 'ENTRY_VOID' | 'ORDER' | 'ORDER_VOID' | 'ADJUSTMENT_ADD' | 'ADJUSTMENT_SUBTRACT' | 'ADJUSTMENT_EDIT' | 'ADJUSTMENT_VOID' | 'TRANSFER_IN' | 'TRANSFER_OUT';
   documentId: string;
   documentNumber: string;
   thirdPartyName: string;

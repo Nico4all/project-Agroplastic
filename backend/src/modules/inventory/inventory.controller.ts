@@ -7,7 +7,9 @@ import { CreateInventoryEntryDto } from './dto/create-inventory-entry.dto';
 import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
+import { UpdateInventoryEntryDto } from './dto/update-inventory-entry.dto';
 import { UpdateInventoryAdjustmentDto } from './dto/update-inventory-adjustment.dto';
+import { VoidInventoryEntryDto } from './dto/void-inventory-entry.dto';
 import { VoidInventoryAdjustmentDto } from './dto/void-inventory-adjustment.dto';
 import { InventoryService } from './inventory.service';
 
@@ -74,6 +76,26 @@ export class InventoryController {
   @Post('entries')
   createEntry(@CurrentUser() user: { userId: string }, @Body() dto: CreateInventoryEntryDto) {
     return this.inventory.createEntry(user.userId, dto);
+  }
+
+  @Patch('entries/:id')
+  @HttpCode(200)
+  updateEntry(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateInventoryEntryDto,
+  ) {
+    return this.inventory.updateEntry(user.userId, id, dto);
+  }
+
+  @Patch('entries/:id/void')
+  @HttpCode(200)
+  voidEntry(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() dto: VoidInventoryEntryDto,
+  ) {
+    return this.inventory.voidEntry(user.userId, id, dto);
   }
 
   @Post('adjustments')

@@ -13,7 +13,9 @@ import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto'
 import { QueryInventoryDto } from './dto/query-inventory.dto';
 import { QueryProductHistoryDto } from './dto/query-product-history.dto';
 import { UpdateInventoryAdjustmentDto } from './dto/update-inventory-adjustment.dto';
+import { UpdateInventoryEntryDto } from './dto/update-inventory-entry.dto';
 import { VoidInventoryAdjustmentDto } from './dto/void-inventory-adjustment.dto';
+import { VoidInventoryEntryDto } from './dto/void-inventory-entry.dto';
 
 @Injectable()
 export class InventoryService {
@@ -489,6 +491,148 @@ export class InventoryService {
     return this.serializeEntry(entry);
   }
 
+  async updateEntry(userId: string, id: string, dto: UpdateInventoryEntryDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const supplierName = cleanDisplayText(dto.supplierName);
+    if (!supplierName) throw new BadRequestException('El proveedor es obligatorio');
+    const productIds = dto.items.map((item) => item.productId);
+    if (new Set(productIds).size !== productIds.length) {
+      throw new BadRequestException('No repitas el mismo producto en una entrada');
+    }
+
+    const entry = await this.prisma.$transaction(async (tx) => {
+      await this.lockInventoryEntry(tx, id);
+      const current = await tx.inventoryEntry.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      if (!current) throw new NotFoundException('Entrada de mercancía no encontrada');
+      if (current.status === RecordStatus.VOID) throw new BadRequestException('No puedes editar una entrada anulada');
+      if (dto.pointOfSaleId && dto.pointOfSaleId !== current.pointOfSaleId) {
+        throw new BadRequestException('No puedes cambiar la bodega de una entrada existente');
+      }
+
+      const stocks = await tx.inventoryStock.findMany({
+        where: { pointOfSaleId: current.pointOfSaleId, productId: { in: productIds } },
+        include: { product: { select: { description: true } } },
+      });
+      if (stocks.length !== productIds.length) {
+        throw new BadRequestException('Uno o más productos no pertenecen a esta bodega');
+      }
+      const currentProductIds = new Set(current.items.map((item) => item.productId));
+      const unavailable = stocks.find((stock) => !stock.isActive && !currentProductIds.has(stock.productId));
+      if (unavailable) throw new BadRequestException(`El producto ${unavailable.product.description} está inactivo`);
+
+      const appliedRows = await tx.inventoryMovement.groupBy({
+        by: ['productId'],
+        where: { inventoryEntryId: id },
+        _sum: { quantityChange: true },
+      });
+      const appliedByProduct = new Map(
+        appliedRows.map((row) => [row.productId, row._sum.quantityChange || new Prisma.Decimal(0)]),
+      );
+      const targetByProduct = new Map(dto.items.map((item) => [item.productId, new Prisma.Decimal(item.quantity)]));
+      const allProductIds = [...new Set([...appliedByProduct.keys(), ...targetByProduct.keys()])].sort();
+
+      for (const productId of allProductIds) {
+        const applied = appliedByProduct.get(productId) || new Prisma.Decimal(0);
+        const target = targetByProduct.get(productId) || new Prisma.Decimal(0);
+        const difference = target.minus(applied);
+        if (difference.isZero()) continue;
+        const stock = await this.applyInventoryDelta(
+          tx,
+          current.pointOfSaleId,
+          productId,
+          difference,
+          'editar la entrada',
+        );
+        await tx.inventoryMovement.create({
+          data: {
+            pointOfSaleId: current.pointOfSaleId,
+            productId,
+            userId: actor.id,
+            inventoryEntryId: current.id,
+            type: InventoryMovementType.ENTRY_EDIT,
+            quantityChange: difference,
+            balanceAfter: stock.quantity,
+          },
+        });
+      }
+
+      const stocksByProduct = new Map(stocks.map((stock) => [stock.productId, stock]));
+      await tx.inventoryEntry.update({
+        where: { id },
+        data: {
+          supplierName,
+          remittanceNumber: cleanDisplayText(dto.remittanceNumber || '') || null,
+          observations: dto.observations?.trim() || null,
+          entryDate: new Date(dto.entryDate),
+          items: {
+            deleteMany: {},
+            create: dto.items.map((item) => ({
+              productId: item.productId,
+              productDescription: stocksByProduct.get(item.productId)!.product.description,
+              quantity: new Prisma.Decimal(item.quantity),
+            })),
+          },
+        },
+      });
+      return tx.inventoryEntry.findUniqueOrThrow({ where: { id }, include: this.entryRelations() });
+    });
+    return this.serializeEntry(entry);
+  }
+
+  async voidEntry(userId: string, id: string, dto: VoidInventoryEntryDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const entry = await this.prisma.$transaction(async (tx) => {
+      await this.lockInventoryEntry(tx, id);
+      const current = await tx.inventoryEntry.findUnique({ where: { id }, include: this.entryRelations() });
+      if (!current) throw new NotFoundException('Entrada de mercancía no encontrada');
+      if (current.status === RecordStatus.VOID) return current;
+
+      const appliedRows = await tx.inventoryMovement.groupBy({
+        by: ['productId'],
+        where: { inventoryEntryId: id },
+        _sum: { quantityChange: true },
+      });
+      for (const row of [...appliedRows].sort((a, b) => a.productId.localeCompare(b.productId))) {
+        const applied = row._sum.quantityChange || new Prisma.Decimal(0);
+        const reversal = applied.negated();
+        if (reversal.isZero()) continue;
+        const stock = await this.applyInventoryDelta(
+          tx,
+          current.pointOfSaleId,
+          row.productId,
+          reversal,
+          'anular la entrada',
+        );
+        await tx.inventoryMovement.create({
+          data: {
+            pointOfSaleId: current.pointOfSaleId,
+            productId: row.productId,
+            userId: actor.id,
+            inventoryEntryId: current.id,
+            type: InventoryMovementType.ENTRY_VOID,
+            quantityChange: reversal,
+            balanceAfter: stock.quantity,
+          },
+        });
+      }
+
+      await tx.inventoryEntry.update({
+        where: { id },
+        data: {
+          status: RecordStatus.VOID,
+          voidReason: dto.reason?.trim() || null,
+          voidedAt: new Date(),
+          voidedByUserId: actor.id,
+        },
+      });
+      return tx.inventoryEntry.findUniqueOrThrow({ where: { id }, include: this.entryRelations() });
+    });
+    return this.serializeEntry(entry);
+  }
+
   async adjustStock(userId: string, dto: CreateInventoryAdjustmentDto) {
     const actor = await this.users.ensureAdmin(userId);
     const pointOfSaleId = await this.resolvePointOfSale(actor, dto.pointOfSaleId);
@@ -793,7 +937,10 @@ export class InventoryService {
       OR: [
         { type: InventoryMovementType.ORDER, orderId: { not: null } },
         { type: InventoryMovementType.ORDER_VOID, orderId: { not: null } },
-        { type: InventoryMovementType.ENTRY, inventoryEntryId: { not: null } },
+        {
+          type: { in: [InventoryMovementType.ENTRY, InventoryMovementType.ENTRY_EDIT, InventoryMovementType.ENTRY_VOID] },
+          inventoryEntryId: { not: null },
+        },
         {
           type: {
             in: [
@@ -830,6 +977,8 @@ export class InventoryService {
           documentNumber: true,
           supplierName: true,
           remittanceNumber: true,
+          status: true,
+          voidReason: true,
         },
       },
       inventoryAdjustment: {
@@ -858,7 +1007,7 @@ export class InventoryService {
   private serializeProductHistory(row: any) {
     const quantityChange = decimalToNumber(row.quantityChange);
     const inventoryAfter = decimalToNumber(row.balanceAfter);
-    const isEntry = row.type === InventoryMovementType.ENTRY;
+    const isEntry = [InventoryMovementType.ENTRY, InventoryMovementType.ENTRY_EDIT, InventoryMovementType.ENTRY_VOID].includes(row.type);
     const isOrder = row.type === InventoryMovementType.ORDER || row.type === InventoryMovementType.ORDER_VOID;
     const isAdjustment = [
       InventoryMovementType.ADJUSTMENT_ADD,
@@ -877,7 +1026,11 @@ export class InventoryService {
             ? document.originPointOfSale.name
             : document.destinationPointOfSale.name;
     const detail = isEntry
-      ? document.remittanceNumber ? `Remisión ${document.remittanceNumber}` : 'Entrada aplicada'
+      ? row.type === InventoryMovementType.ENTRY_EDIT
+        ? `Corrección de entrada${document.remittanceNumber ? ` · Remisión ${document.remittanceNumber}` : ''}`
+        : row.type === InventoryMovementType.ENTRY_VOID
+          ? `Reversión por anulación · ${document.voidReason || 'Sin motivo'}`
+          : `${document.status === RecordStatus.VOID ? 'Entrada anulada' : 'Entrada aplicada'}${document.remittanceNumber ? ` · Remisión ${document.remittanceNumber}` : ''}`
       : isOrder
         ? row.type === InventoryMovementType.ORDER_VOID
           ? `Reintegro por anulación · ${document.documentNumber}`
@@ -917,6 +1070,8 @@ export class InventoryService {
   ) {
     const byType = new Map(stats.map((row) => [row.type, row]));
     const entries = byType.get(InventoryMovementType.ENTRY);
+    const entryEdit = byType.get(InventoryMovementType.ENTRY_EDIT);
+    const entryVoid = byType.get(InventoryMovementType.ENTRY_VOID);
     const orders = byType.get(InventoryMovementType.ORDER);
     const adjustmentAdd = byType.get(InventoryMovementType.ADJUSTMENT_ADD);
     const adjustmentSubtract = byType.get(InventoryMovementType.ADJUSTMENT_SUBTRACT);
@@ -927,7 +1082,7 @@ export class InventoryService {
     const count = (row: any) => row?._count?._all || 0;
     return {
       movements,
-      entries: count(entries),
+      entries: count(entries) + count(entryEdit) + count(entryVoid),
       orders: count(orders),
       adjustments: count(adjustmentAdd) + count(adjustmentSubtract) + count(adjustmentEdit) + count(adjustmentVoid),
       transfers: count(transferIn) + count(transferOut),
@@ -940,6 +1095,8 @@ export class InventoryService {
   private productHistoryMovementLabel(type: InventoryMovementType) {
     const labels: Record<InventoryMovementType, string> = {
       [InventoryMovementType.ENTRY]: 'Entrada',
+      [InventoryMovementType.ENTRY_EDIT]: 'Edición de entrada',
+      [InventoryMovementType.ENTRY_VOID]: 'Anulación de entrada',
       [InventoryMovementType.ORDER]: 'Pedido',
       [InventoryMovementType.ORDER_VOID]: 'Anulación',
       [InventoryMovementType.ADJUSTMENT_ADD]: 'Ajuste +',
@@ -995,6 +1152,7 @@ export class InventoryService {
   private entryRelations() {
     return {
       user: { select: { id: true, name: true, username: true } },
+      voidedBy: { select: { id: true, name: true, username: true } },
       pointOfSale: { select: { id: true, name: true, code: true } },
       items: { orderBy: { productDescription: 'asc' as const } },
     };
@@ -1061,6 +1219,10 @@ export class InventoryService {
 
   private async lockInventoryAdjustment(tx: Prisma.TransactionClient, id: string) {
     await tx.$queryRaw`SELECT id FROM inventory_adjustments WHERE id = ${id} FOR UPDATE`;
+  }
+
+  private async lockInventoryEntry(tx: Prisma.TransactionClient, id: string) {
+    await tx.$queryRaw`SELECT id FROM inventory_entries WHERE id = ${id} FOR UPDATE`;
   }
 
   private transferRelations() {

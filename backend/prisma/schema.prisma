@@ -71,6 +71,8 @@ enum RecordStatus {
 
 enum InventoryMovementType {
   ENTRY
+  ENTRY_EDIT
+  ENTRY_VOID
   ORDER
   ORDER_VOID
   ADJUSTMENT_ADD
@@ -111,7 +113,8 @@ model User {
   products             Product[]               @relation("ProductCreator")
   orders               Order[]                 @relation("OrderCreator")
   voidedOrders         Order[]                 @relation("OrderVoidUser")
-  inventoryEntries     InventoryEntry[]
+  inventoryEntries     InventoryEntry[]        @relation("InventoryEntryCreator")
+  voidedInventoryEntries InventoryEntry[]      @relation("InventoryEntryVoidUser")
   inventoryAdjustments InventoryAdjustment[]       @relation("InventoryAdjustmentCreator")
   voidedInventoryAdjustments InventoryAdjustment[] @relation("InventoryAdjustmentVoidUser")
   inventoryTransfers   InventoryTransfer[]
@@ -476,9 +479,14 @@ model InventoryEntry {
   remittanceNumber   String?              @map("remittance_number")
   observations       String?              @db.Text
   entryDate          DateTime             @map("entry_date")
+  status             RecordStatus         @default(ACTIVE)
+  voidReason         String?              @map("void_reason") @db.Text
+  voidedAt           DateTime?            @map("voided_at")
+  voidedByUserId     String?              @map("voided_by_user_id")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
-  user               User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user               User                 @relation("InventoryEntryCreator", fields: [userId], references: [id], onDelete: Restrict)
+  voidedBy           User?                @relation("InventoryEntryVoidUser", fields: [voidedByUserId], references: [id], onDelete: SetNull)
   pointOfSale        PointOfSale          @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   items              InventoryEntryItem[]
   inventoryMovements InventoryMovement[]
@@ -486,6 +494,8 @@ model InventoryEntry {
   @@index([userId])
   @@index([pointOfSaleId, documentSequence])
   @@index([entryDate])
+  @@index([status])
+  @@index([voidedByUserId])
   @@map("inventory_entries")
 }
 

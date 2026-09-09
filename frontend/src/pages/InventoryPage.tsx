@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
-import { InventoryAdjustment } from '../types';
+import { InventoryAdjustment, InventoryEntry } from '../types';
 import { dateInput } from '../utils/format';
 import { downloadBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
@@ -20,12 +20,12 @@ function getApiError(error: any, fallback: string) {
 }
 
 function movementLabel(type: string) {
-  return ({ ENTRY: 'Entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', ADJUSTMENT_EDIT: 'Edición ajuste', ADJUSTMENT_VOID: 'Anulación ajuste', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida' } as Record<string, string>)[type] || type;
+  return ({ ENTRY: 'Entrada', ENTRY_EDIT: 'Edición entrada', ENTRY_VOID: 'Anulación entrada', ORDER: 'Pedido', ORDER_VOID: 'Anulación', ADJUSTMENT_ADD: 'Ajuste +', ADJUSTMENT_SUBTRACT: 'Ajuste -', ADJUSTMENT_EDIT: 'Edición ajuste', ADJUSTMENT_VOID: 'Anulación ajuste', TRANSFER_IN: 'Traslado entrada', TRANSFER_OUT: 'Traslado salida' } as Record<string, string>)[type] || type;
 }
 
 function movementTone(type: string): 'income' | 'expense' | 'transfer' | 'neutral' {
   if (['ENTRY', 'ORDER_VOID', 'ADJUSTMENT_ADD', 'TRANSFER_IN'].includes(type)) return 'income';
-  if (['ADJUSTMENT_SUBTRACT', 'ADJUSTMENT_VOID', 'TRANSFER_OUT'].includes(type)) return 'expense';
+  if (['ENTRY_VOID', 'ADJUSTMENT_SUBTRACT', 'ADJUSTMENT_VOID', 'TRANSFER_OUT'].includes(type)) return 'expense';
   return type === 'ORDER' ? 'neutral' : 'transfer';
 }
 
@@ -44,6 +44,9 @@ export function InventoryPage() {
   const [observations, setObservations] = useState('');
   const [lines, setLines] = useState<EntryLine[]>([emptyLine()]);
   const [error, setError] = useState('');
+  const [editingEntry, setEditingEntry] = useState<InventoryEntry | null>(null);
+  const [voidingEntry, setVoidingEntry] = useState<InventoryEntry | null>(null);
+  const [entryVoidReason, setEntryVoidReason] = useState('');
   const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null);
   const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
   const [adjustmentPointOfSaleId, setAdjustmentPointOfSaleId] = useState('');
@@ -133,6 +136,14 @@ export function InventoryPage() {
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
+  editingEntry?.items.forEach((item) => {
+    if (productOptions.some((option) => option.value === item.productId)) return;
+    const stock = stocks.find((row) => row.productId === item.productId);
+    productOptions.push({
+      value: item.productId,
+      label: `${item.productDescription} - existencia ${(stock?.quantity || 0).toLocaleString('es-CO', { maximumFractionDigits: 3 })} - inactivo`,
+    });
+  });
   const totalUnits = stocks.reduce((sum, stock) => sum + stock.quantity, 0);
   const outOfStock = stocks.filter((stock) => stock.isActive && stock.quantity <= 0).length;
 
@@ -145,6 +156,31 @@ export function InventoryPage() {
       setModalOpen(false);
     },
     onError: (err) => setError(getApiError(err, 'No se pudo registrar la entrada')),
+  });
+
+  const updateEntry = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof inventoryApi.updateEntry>[1] }) =>
+      inventoryApi.updateEntry(id, payload),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(`Entrada ${updated.documentNumber} actualizada`);
+      setModalOpen(false);
+      setEditingEntry(null);
+    },
+    onError: (err) => setError(getApiError(err, 'No se pudo editar la entrada')),
+  });
+
+  const voidEntry = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => inventoryApi.voidEntry(id, { reason }),
+    onSuccess: (voided) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast(`Entrada ${voided.documentNumber} anulada`);
+      setVoidingEntry(null);
+      setEntryVoidReason('');
+    },
+    onError: (err) => toast(getApiError(err, 'No se pudo anular la entrada'), 'error'),
   });
 
   const adjust = useMutation({
@@ -197,11 +233,24 @@ export function InventoryPage() {
   });
 
   const openCreate = () => {
+    setEditingEntry(null);
     setSupplierName('');
     setRemittanceNumber('');
     setEntryDate(today());
     setObservations('');
     setLines([emptyLine()]);
+    setError('');
+    setModalOpen(true);
+  };
+
+  const openEditEntry = (entry: InventoryEntry) => {
+    setEditingEntry(entry);
+    setPointOfSaleId(entry.pointOfSaleId);
+    setSupplierName(entry.supplierName);
+    setRemittanceNumber(entry.remittanceNumber || '');
+    setEntryDate(dateInput(entry.entryDate));
+    setObservations(entry.observations || '');
+    setLines(entry.items.map((item) => ({ productId: item.productId, quantity: String(item.quantity) })));
     setError('');
     setModalOpen(true);
   };
@@ -254,14 +303,18 @@ export function InventoryPage() {
     if (!pointOfSaleId) return setError('Selecciona un punto de venta');
     if (lines.some((line) => !line.productId)) return setError('Selecciona un producto en cada línea');
     if (new Set(lines.map((line) => line.productId)).size !== lines.length) return setError('No repitas productos en la entrada');
-    await create.mutateAsync({
+    const quantities = lines.map((line) => Number(line.quantity));
+    if (quantities.some((quantity) => !Number.isFinite(quantity) || quantity <= 0)) return setError('Ingresa una cantidad válida en cada línea');
+    const payload = {
       pointOfSaleId,
       supplierName,
       remittanceNumber,
       entryDate,
       observations,
-      items: lines.map((line) => ({ productId: line.productId, quantity: Number(line.quantity) })),
-    });
+      items: lines.map((line, index) => ({ productId: line.productId, quantity: quantities[index] })),
+    };
+    if (editingEntry) await updateEntry.mutateAsync({ id: editingEntry.id, payload });
+    else await create.mutateAsync(payload);
   }
 
   async function exportStocks(kind: 'excel' | 'pdf') {
@@ -452,18 +505,60 @@ export function InventoryPage() {
         </>}
       </Card>}
 
-      {pointOfSaleId && <Card className="overflow-hidden p-0"><div className="border-b border-line px-4 py-3"><h2 className="font-bold">Historial de entradas</h2></div>{entriesLoading || !entries ? <div className="p-6"><Spinner /></div> : entries.data.length ? <><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Proveedor</th><th className="px-4 py-3">Remisión</th><th className="px-4 py-3">Productos</th><th className="px-4 py-3">Usuario</th></tr></thead><tbody className="divide-y divide-line">{entries.data.map((entry) => <tr key={entry.id}><td className="px-4 py-3 font-mono font-semibold">{entry.documentNumber}</td><td className="px-4 py-3">{dateInput(entry.entryDate)}</td><td className="px-4 py-3 font-semibold">{entry.supplierName}</td><td className="px-4 py-3">{entry.remittanceNumber || '-'}</td><td className="px-4 py-3"><ul className="space-y-1">{entry.items.map((item) => <li key={item.id}>{item.productDescription} <span className="font-bold text-brand-dark">+{item.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</span></li>)}</ul></td><td className="px-4 py-3">{entry.user?.name || '-'}</td></tr>)}</tbody></table></div><div className="p-4"><Pagination page={entries.page} pageSize={entries.pageSize} total={entries.total} onChange={setPage} /></div></> : <EmptyState title="Sin entradas registradas" />}</Card>}
+      {pointOfSaleId && <Card className="overflow-hidden p-0">
+        <div className="border-b border-line px-4 py-3"><h2 className="font-bold">Historial de entradas</h2></div>
+        {entriesLoading || !entries ? <div className="p-6"><Spinner /></div> : entries.data.length ? <>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-sm">
+            <thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Documento</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Proveedor</th><th className="px-4 py-3">Remisión</th><th className="px-4 py-3">Productos</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3 text-right">Acciones</th></tr></thead>
+            <tbody className="divide-y divide-line">{entries.data.map((entry) => <tr key={entry.id} className={entry.status === 'VOID' ? 'bg-expense-soft/25' : ''}>
+              <td className="px-4 py-3 font-mono font-semibold">{entry.documentNumber}</td>
+              <td className="px-4 py-3">{dateInput(entry.entryDate)}</td>
+              <td className="px-4 py-3 font-semibold">{entry.supplierName}</td>
+              <td className="px-4 py-3">{entry.remittanceNumber || '-'}</td>
+              <td className="px-4 py-3"><ul className="space-y-1">{entry.items.map((item) => <li key={item.id} className={entry.status === 'VOID' ? 'text-mute line-through' : ''}>{item.productDescription} <span className="font-bold text-brand-dark">+{item.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</span></li>)}</ul>{entry.status === 'VOID' && entry.voidReason && <p className="mt-1 text-xs font-semibold text-expense">Motivo: {entry.voidReason}</p>}</td>
+              <td className="px-4 py-3">{entry.user?.name || '-'}</td>
+              <td className="px-4 py-3"><Badge tone={entry.status === 'VOID' ? 'expense' : 'income'}>{entry.status === 'VOID' ? 'Anulada' : 'Activa'}</Badge></td>
+              <td className="px-4 py-3"><div className="flex justify-end gap-1">{isAdmin && entry.status === 'ACTIVE' && <>
+                <Button variant="ghost" className="px-2" title="Editar entrada" onClick={() => openEditEntry(entry)}><Pencil className="h-4 w-4" /></Button>
+                <Button variant="ghost" className="px-2 text-expense" title="Anular entrada" onClick={() => { setVoidingEntry(entry); setEntryVoidReason(''); }}><Ban className="h-4 w-4" /></Button>
+              </>}</div></td>
+            </tr>)}</tbody>
+          </table></div>
+          <div className="p-4"><Pagination page={entries.page} pageSize={entries.pageSize} total={entries.total} onChange={setPage} /></div>
+        </> : <EmptyState title="Sin entradas registradas" />}
+      </Card>}
 
-      <Modal open={isAdmin && modalOpen} onClose={() => setModalOpen(false)} title="Nueva entrada de mercancía" size="large">
+      <Modal open={isAdmin && modalOpen} onClose={() => { setModalOpen(false); setEditingEntry(null); }} title={editingEntry ? `Editar entrada ${editingEntry.documentNumber}` : 'Nueva entrada de mercancía'} size="large">
         <form onSubmit={submit} className="space-y-4">
-          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">La entrada aumentará el inventario de <strong>{pointName}</strong>.</p>
+          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">{editingEntry ? 'Al guardar, el sistema aplicará únicamente las diferencias de productos y cantidades, conservando el historial.' : <>La entrada aumentará el inventario de <strong>{pointName}</strong>.</>}</p>
           <div className="grid gap-3 sm:grid-cols-3"><Field label="Proveedor"><Input required minLength={2} maxLength={191} value={supplierName} onChange={(event) => setSupplierName(event.target.value)} placeholder="Nombre del proveedor" /></Field><Field label="Remisión" hint="Opcional"><Input maxLength={191} value={remittanceNumber} onChange={(event) => setRemittanceNumber(event.target.value)} /></Field><Field label="Fecha"><Input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></Field></div>
           <Field label="Observaciones" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={1000} value={observations} onChange={(event) => setObservations(event.target.value)} /></Field>
           <div className="space-y-3"><div className="flex items-center justify-between"><p className="font-bold">Productos recibidos</p><Button variant="secondary" className="px-3 py-1.5" onClick={() => setLines((current) => [...current, emptyLine()])}><PackagePlus className="h-4 w-4" /> Agregar</Button></div>{lines.map((line, index) => <div key={index} className="grid gap-3 rounded-lg border border-line p-3 sm:grid-cols-[1fr_180px_auto]"><Field label={`Producto ${index + 1}`}><SearchableSelect value={line.productId} onChange={(productId) => updateLine(index, { productId })} options={productOptions} placeholder="Buscar producto" emptyMessage="No hay productos activos" /></Field><Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></Field><div className="flex items-end"><Button variant="ghost" className="px-2 text-expense" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div></div>)}</div>
-          {!products.length && <p className="flex items-center gap-2 rounded-lg bg-expense-soft px-3 py-2 text-sm text-expense"><TriangleAlert className="h-4 w-4" /> No hay productos activos para registrar una entrada.</p>}
+          {!products.length && !editingEntry && <p className="flex items-center gap-2 rounded-lg bg-expense-soft px-3 py-2 text-sm text-expense"><TriangleAlert className="h-4 w-4" /> No hay productos activos para registrar una entrada.</p>}
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
-          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={create.isPending || !products.length}>{create.isPending ? 'Guardando...' : 'Registrar entrada'}</Button></div>
+          <div className="flex justify-end gap-2"><Button variant="secondary" disabled={create.isPending || updateEntry.isPending} onClick={() => { setModalOpen(false); setEditingEntry(null); }}>Cancelar</Button><Button type="submit" disabled={create.isPending || updateEntry.isPending || (!products.length && !editingEntry)}>{create.isPending || updateEntry.isPending ? 'Guardando...' : editingEntry ? 'Guardar cambios' : 'Registrar entrada'}</Button></div>
         </form>
+      </Modal>
+
+      <Modal open={isAdmin && Boolean(voidingEntry)} onClose={() => { setVoidingEntry(null); setEntryVoidReason(''); }} title="Anular entrada de mercancía">
+        <div className="space-y-4">
+          <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm text-expense">
+            Esta acción retirará del inventario el efecto vigente de <strong>{voidingEntry?.documentNumber}</strong>. El documento y su historial se conservarán marcados como anulados.
+          </p>
+          <div className="rounded-lg bg-paper px-3 py-3 text-sm">
+            <p>Proveedor: <strong>{voidingEntry?.supplierName || '-'}</strong></p>
+            <p>Productos: <strong>{voidingEntry?.items.length || 0}</strong></p>
+          </div>
+          <Field label="Motivo de anulación" hint="Opcional">
+            <textarea className="input min-h-20 resize-y" maxLength={191} value={entryVoidReason} onChange={(event) => setEntryVoidReason(event.target.value)} placeholder="Motivo de la anulación" />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" disabled={voidEntry.isPending} onClick={() => { setVoidingEntry(null); setEntryVoidReason(''); }}>Cancelar</Button>
+            <Button variant="danger" disabled={voidEntry.isPending || !voidingEntry} onClick={() => voidingEntry && voidEntry.mutate({ id: voidingEntry.id, reason: entryVoidReason })}>
+              {voidEntry.isPending ? 'Anulando...' : 'Anular entrada'}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       <Modal

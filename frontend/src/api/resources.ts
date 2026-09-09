@@ -128,6 +128,16 @@ export const inventoryApi = {
     entryDate: string;
     items: Array<{ productId: string; quantity: number }>;
   }) => (await api.post<InventoryEntry>('/inventory/entries', payload)).data,
+  updateEntry: async (id: string, payload: {
+    pointOfSaleId?: string;
+    supplierName: string;
+    remittanceNumber?: string;
+    observations?: string;
+    entryDate: string;
+    items: Array<{ productId: string; quantity: number }>;
+  }) => (await api.patch<InventoryEntry>(`/inventory/entries/${id}`, payload)).data,
+  voidEntry: async (id: string, payload: { reason?: string }) =>
+    (await api.patch<InventoryEntry>(`/inventory/entries/${id}/void`, payload)).data,
   adjustStock: async (payload: {
     pointOfSaleId: string;
     productId: string;
