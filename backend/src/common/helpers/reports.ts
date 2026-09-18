@@ -47,6 +47,22 @@ export type OrderTicketData = {
   total: number;
 };
 
+export type InventoryTicketData = {
+  title: string;
+  number: string;
+  date: string;
+  details: Array<{ label: string; value: string }>;
+  items: Array<{
+    description: string;
+    quantity: number;
+    detail?: string;
+  }>;
+  observations?: string;
+  userName: string;
+  voided: boolean;
+  voidReason?: string;
+};
+
 export type OrderMovementReportRow = {
   orderNumber: string;
   date: string;
@@ -533,6 +549,83 @@ function measureCashReceipt(data: CashReceiptData, pageWidth: number) {
     preparedHeight,
     voidReasonHeight,
   };
+}
+
+export async function buildInventoryTicketPdf(data: InventoryTicketData) {
+  const pageWidth = 226.77;
+  const contentWidth = pageWidth - 32;
+  const measureDoc = new PDFDocument({ size: [pageWidth, 14400], margin: 0 });
+  measureDoc.on('data', () => undefined);
+  const detailHeights = data.details.map((detail) => Math.max(13, measureDoc.font('Helvetica-Bold').fontSize(8).heightOfString(detail.value || '-', { width: contentWidth })));
+  const itemHeights = data.items.map((item) => {
+    const description = Math.max(12, measureDoc.font('Helvetica-Bold').fontSize(8).heightOfString(item.description, { width: contentWidth - 10 }));
+    const detail = item.detail ? Math.max(9, measureDoc.font('Helvetica').fontSize(7).heightOfString(item.detail, { width: contentWidth - 10 })) : 0;
+    return description + detail + 25;
+  });
+  const observationsHeight = Math.max(12, measureDoc.font('Helvetica').fontSize(8).heightOfString(data.observations || 'Sin observaciones', { width: contentWidth - 10 }));
+  const voidReasonHeight = data.voided
+    ? Math.max(12, measureDoc.font('Helvetica').fontSize(8).heightOfString(data.voidReason || 'Sin motivo', { width: contentWidth - 10 }))
+    : 0;
+  const pageHeight = Math.max(500, Math.ceil(
+    155
+    + detailHeights.reduce((sum, height) => sum + height + 14, 0)
+    + itemHeights.reduce((sum, height) => sum + height, 0)
+    + observationsHeight
+    + voidReasonHeight
+    + 180,
+  ));
+  measureDoc.end();
+
+  const { doc, done } = createDocument({ size: [pageWidth, pageHeight], margin: 0 });
+  const logo = getThermalLogoBuffer();
+  if (logo) doc.image(logo, 16, 16, { fit: [contentWidth, 66], align: 'center', valign: 'center' });
+  else doc.font('Helvetica-Bold').fontSize(20).fillColor(THERMAL_INK).text('AgroPlastick', 16, 30, { width: contentWidth, align: 'center' });
+  let y = 91;
+  dashedLine(doc, y, 16, pageWidth - 16);
+  y += 12;
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(THERMAL_INK).text(data.title.toLocaleUpperCase('es-CO'), 16, y, { width: contentWidth, align: 'center' });
+  y += 18;
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(THERMAL_INK).text(data.number, 16, y, { width: contentWidth, align: 'center' });
+  y += 25;
+
+  const fullPair = (label: string, value: string, height: number) => {
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text(label.toLocaleUpperCase('es-CO'), 16, y, { width: contentWidth });
+    y += 10;
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(value || '-', 16, y, { width: contentWidth });
+    y += height + 4;
+  };
+
+  fullPair('Fecha', data.date, 13);
+  data.details.forEach((detail, index) => fullPair(detail.label, detail.value, detailHeights[index]));
+  dashedLine(doc, y, 16, pageWidth - 16);
+  y += 12;
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('PRODUCTOS', 16, y);
+  y += 14;
+
+  data.items.forEach((item, index) => {
+    const blockHeight = itemHeights[index];
+    doc.roundedRect(16, y, contentWidth, blockHeight, 3).lineWidth(0.7).strokeColor(THERMAL_INK).stroke();
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(item.description, 21, y + 5, { width: contentWidth - 10 });
+    const quantityY = y + blockHeight - (item.detail ? 27 : 17);
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text(`Cantidad: ${formatQuantity(item.quantity)}`, 21, quantityY, { width: contentWidth - 10, align: 'right' });
+    if (item.detail) doc.font('Helvetica').fontSize(7).fillColor(THERMAL_INK).text(item.detail, 21, y + blockHeight - 13, { width: contentWidth - 10 });
+    y += blockHeight + 5;
+  });
+
+  y += 4;
+  doc.font('Helvetica-Bold').fontSize(7).fillColor(THERMAL_INK).text('OBSERVACIONES', 16, y, { width: contentWidth });
+  y += 10;
+  doc.roundedRect(16, y, contentWidth, observationsHeight + 10, 3).lineWidth(0.7).strokeColor(THERMAL_INK).stroke();
+  doc.font('Helvetica').fontSize(8).fillColor(THERMAL_INK).text(data.observations || 'Sin observaciones', 21, y + 5, { width: contentWidth - 10 });
+  y += observationsHeight + 22;
+  fullPair('Estado', data.voided ? 'Anulado' : 'Activo', 13);
+  if (data.voided) fullPair('Motivo de anulación', data.voidReason || 'Sin motivo', voidReasonHeight);
+  fullPair('Elaborado por', data.userName, Math.max(13, doc.heightOfString(data.userName, { width: contentWidth })));
+  dashedLine(doc, y + 4, 16, pageWidth - 16);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(THERMAL_INK).text('Comprobante de inventario', 16, y + 16, { width: contentWidth, align: 'center' });
+
+  doc.end();
+  return done;
 }
 
 export async function buildOrderTicketPdf(data: OrderTicketData) {

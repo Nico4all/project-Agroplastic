@@ -121,6 +121,8 @@ export const inventoryApi = {
     (await api.get('/inventory/history/export/excel', { params, responseType: 'blob' })).data as Blob,
   entries: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryEntry>>('/inventory/entries', { params })).data,
+  entryTicketPdf: async (id: string) =>
+    (await api.get(`/inventory/entries/${id}/pdf`, { responseType: 'blob' })).data as Blob,
   createEntry: async (payload: {
     pointOfSaleId?: string;
     supplierName: string;
@@ -152,6 +154,8 @@ export const inventoryApi = {
     (await api.patch<InventoryAdjustment>(`/inventory/adjustments/${id}/void`, payload)).data,
   adjustments: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryAdjustment>>('/inventory/adjustments', { params })).data,
+  adjustmentTicketPdf: async (id: string) =>
+    (await api.get(`/inventory/adjustments/${id}/pdf`, { responseType: 'blob' })).data as Blob,
   createTransfer: async (payload: {
     originPointOfSaleId: string;
     destinationPointOfSaleId: string;
@@ -164,6 +168,8 @@ export const inventoryApi = {
     (await api.patch<InventoryTransfer>(`/inventory/transfers/${id}/void`, payload)).data,
   transfers: async (params?: Record<string, unknown>) =>
     (await api.get<PaginatedResult<InventoryTransfer>>('/inventory/transfers', { params })).data,
+  transferTicketPdf: async (id: string) =>
+    (await api.get(`/inventory/transfers/${id}/pdf`, { responseType: 'blob' })).data as Blob,
 };
 
 export const suppliersApi = {

@@ -6,7 +6,7 @@ import { useAuth } from '../state/AuthContext';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Pagination, SearchableSelect, Select, Spinner, useToast } from '../ui/components';
 import { InventoryAdjustment, InventoryEntry, InventoryTransfer } from '../types';
 import { dateInput } from '../utils/format';
-import { downloadBlob } from '../utils/download';
+import { downloadBlob, openBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
 
 type EntryLine = { productId: string; quantity: string };
@@ -376,6 +376,19 @@ export function InventoryPage() {
     }
   }
 
+  async function openInventoryTicket(kind: 'entry' | 'adjustment' | 'transfer', id: string) {
+    try {
+      const blob = kind === 'entry'
+        ? await inventoryApi.entryTicketPdf(id)
+        : kind === 'adjustment'
+          ? await inventoryApi.adjustmentTicketPdf(id)
+          : await inventoryApi.transferTicketPdf(id);
+      openBlob(blob);
+    } catch (err) {
+      toast(getApiError(err, 'No se pudo generar la tirilla'), 'error');
+    }
+  }
+
   async function submitAdjustment(event: FormEvent) {
     event.preventDefault();
     setAdjustmentError('');
@@ -536,6 +549,7 @@ export function InventoryPage() {
                     <td className="px-4 py-3"><Badge tone={adjustment.status === 'VOID' ? 'expense' : 'income'}>{adjustment.status === 'VOID' ? 'Anulado' : 'Activo'}</Badge></td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" className="px-2" title="Ver tirilla" onClick={() => openInventoryTicket('adjustment', adjustment.id)}><FileText className="h-4 w-4" /></Button>
                         {isAdmin && adjustment.status === 'ACTIVE' && <>
                           <Button variant="ghost" className="px-2" title="Editar cantidad" onClick={() => openEditAdjustment(adjustment)}><Pencil className="h-4 w-4" /></Button>
                           <Button variant="ghost" className="px-2 text-expense" title="Anular ajuste" onClick={() => { setVoidingAdjustment(adjustment); setAdjustmentVoidReason(''); }}><Ban className="h-4 w-4" /></Button>
@@ -566,7 +580,7 @@ export function InventoryPage() {
               <td className="max-w-[260px] px-4 py-3">{movement.status === 'VOID' && movement.voidReason ? <><span className="font-semibold text-expense">Anulado: </span>{movement.voidReason}</> : movement.observation || '-'}</td>
               <td className="px-4 py-3">{movement.user?.name || '-'}</td>
               <td className="px-4 py-3"><Badge tone={movement.status === 'VOID' ? 'expense' : 'income'}>{movement.status === 'VOID' ? 'Anulado' : 'Activo'}</Badge></td>
-              <td className="px-4 py-3"><div className="flex justify-end gap-1">{isAdmin && movement.status === 'ACTIVE' && <>
+              <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" className="px-2" title="Ver tirilla" onClick={() => openInventoryTicket('transfer', movement.id)}><FileText className="h-4 w-4" /></Button>{isAdmin && movement.status === 'ACTIVE' && <>
                 <Button variant="ghost" className="px-2" title="Editar traslado" onClick={() => openEditTransfer(movement)}><Pencil className="h-4 w-4" /></Button>
                 <Button variant="ghost" className="px-2 text-expense" title="Anular traslado" onClick={() => { setVoidingTransfer(movement); setTransferVoidReason(''); }}><Ban className="h-4 w-4" /></Button>
               </>}</div></td>
@@ -598,7 +612,7 @@ export function InventoryPage() {
               <td className="px-4 py-3"><ul className="space-y-1">{entry.items.map((item) => <li key={item.id} className={entry.status === 'VOID' ? 'text-mute line-through' : ''}>{item.productDescription} <span className="font-bold text-brand-dark">+{item.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</span></li>)}</ul>{entry.status === 'VOID' && entry.voidReason && <p className="mt-1 text-xs font-semibold text-expense">Motivo: {entry.voidReason}</p>}</td>
               <td className="px-4 py-3">{entry.user?.name || '-'}</td>
               <td className="px-4 py-3"><Badge tone={entry.status === 'VOID' ? 'expense' : 'income'}>{entry.status === 'VOID' ? 'Anulada' : 'Activa'}</Badge></td>
-              <td className="px-4 py-3"><div className="flex justify-end gap-1">{isAdmin && entry.status === 'ACTIVE' && <>
+              <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" className="px-2" title="Ver tirilla" onClick={() => openInventoryTicket('entry', entry.id)}><FileText className="h-4 w-4" /></Button>{isAdmin && entry.status === 'ACTIVE' && <>
                 <Button variant="ghost" className="px-2" title="Editar entrada" onClick={() => openEditEntry(entry)}><Pencil className="h-4 w-4" /></Button>
                 <Button variant="ghost" className="px-2 text-expense" title="Anular entrada" onClick={() => { setVoidingEntry(entry); setEntryVoidReason(''); }}><Ban className="h-4 w-4" /></Button>
               </>}</div></td>

@@ -50,6 +50,12 @@ export class InventoryController {
     return this.inventory.findEntries(user.userId, query);
   }
 
+  @Get('entries/:id/pdf')
+  async entryTicketPdf(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.inventory.entryTicketPdf(user.userId, id);
+    this.sendInlinePdf(res, pdf, `entrada-${id}.pdf`);
+  }
+
   @Get('history')
   findProductHistory(@CurrentUser() user: { userId: string }, @Query() query: QueryProductHistoryDto) {
     return this.inventory.findProductHistory(user.userId, query);
@@ -60,9 +66,21 @@ export class InventoryController {
     return this.inventory.findAdjustments(user.userId, query);
   }
 
+  @Get('adjustments/:id/pdf')
+  async adjustmentTicketPdf(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.inventory.adjustmentTicketPdf(user.userId, id);
+    this.sendInlinePdf(res, pdf, `ajuste-${id}.pdf`);
+  }
+
   @Get('transfers')
   findTransfers(@CurrentUser() user: { userId: string }, @Query() query: QueryInventoryDto) {
     return this.inventory.findTransfers(user.userId, query);
+  }
+
+  @Get('transfers/:id/pdf')
+  async transferTicketPdf(@CurrentUser() user: { userId: string }, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.inventory.transferTicketPdf(user.userId, id);
+    this.sendInlinePdf(res, pdf, `traslado-${id}.pdf`);
   }
 
   @Get('history/export/excel')
@@ -155,5 +173,11 @@ export class InventoryController {
     res.header('Content-Type', contentType);
     res.header('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
     res.send(file.buffer);
+  }
+
+  private sendInlinePdf(res: Response, pdf: Buffer, filename: string) {
+    res.header('Content-Type', 'application/pdf');
+    res.header('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(pdf);
   }
 }

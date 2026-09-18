@@ -3,7 +3,7 @@ import { InventoryMovementType, Prisma, RecordStatus, User } from '@prisma/clien
 import { Workbook } from 'exceljs';
 import { decimalToNumber } from '../../common/helpers/money';
 import { cleanDisplayText } from '../../common/helpers/normalization';
-import { buildListPdf, formatDate } from '../../common/helpers/reports';
+import { buildInventoryTicketPdf, buildListPdf, formatDate } from '../../common/helpers/reports';
 import { isAdminRole } from '../../common/helpers/roles';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -273,6 +273,95 @@ export class InventoryService {
       }),
     ]);
     return { data: rows.map((row) => this.serializeTransfer(row)), total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async entryTicketPdf(userId: string, id: string) {
+    const actor = await this.users.getActiveUser(userId);
+    const entry = await this.prisma.inventoryEntry.findFirst({
+      where: { id, ...(isAdminRole(actor.role) ? {} : { pointOfSaleId: actor.pointOfSaleId! }) },
+      include: this.entryRelations(),
+    });
+    if (!entry) throw new NotFoundException('Entrada de inventario no encontrada');
+    return buildInventoryTicketPdf({
+      title: 'Entrada de inventario',
+      number: entry.documentNumber,
+      date: formatDate(entry.entryDate),
+      details: [
+        { label: 'Bodega', value: entry.pointOfSale.name },
+        { label: 'Proveedor', value: entry.supplierName },
+        { label: 'Remisión', value: entry.remittanceNumber || 'No registrada' },
+      ],
+      items: entry.items.map((item) => ({
+        description: item.productDescription,
+        quantity: decimalToNumber(item.quantity),
+      })),
+      observations: entry.observations || undefined,
+      userName: entry.user.name,
+      voided: entry.status === RecordStatus.VOID,
+      voidReason: entry.voidReason || undefined,
+    });
+  }
+
+  async adjustmentTicketPdf(userId: string, id: string) {
+    const actor = await this.users.getActiveUser(userId);
+    const adjustment = await this.prisma.inventoryAdjustment.findFirst({
+      where: { id, ...(isAdminRole(actor.role) ? {} : { pointOfSaleId: actor.pointOfSaleId! }) },
+      include: this.adjustmentRelations(),
+    });
+    if (!adjustment) throw new NotFoundException('Ajuste de inventario no encontrado');
+    return buildInventoryTicketPdf({
+      title: 'Ajuste de inventario',
+      number: adjustment.documentNumber,
+      date: formatDate(adjustment.adjustmentDate),
+      details: [
+        { label: 'Bodega', value: adjustment.pointOfSale.name },
+        { label: 'Operación', value: adjustment.operation === InventoryAdjustmentOperation.ADD ? 'Sumar al inventario' : 'Restar del inventario' },
+      ],
+      items: [{
+        description: adjustment.product.description,
+        quantity: decimalToNumber(adjustment.quantity),
+        detail: `Saldo anterior: ${this.formatQuantity(decimalToNumber(adjustment.balanceBefore))} | Saldo final: ${this.formatQuantity(decimalToNumber(adjustment.balanceAfter))}`,
+      }],
+      observations: adjustment.observation || undefined,
+      userName: adjustment.user.name,
+      voided: adjustment.status === RecordStatus.VOID,
+      voidReason: adjustment.voidReason || undefined,
+    });
+  }
+
+  async transferTicketPdf(userId: string, id: string) {
+    const actor = await this.users.getActiveUser(userId);
+    const transfer = await this.prisma.inventoryTransfer.findFirst({
+      where: {
+        id,
+        ...(isAdminRole(actor.role) ? {} : {
+          OR: [
+            { originPointOfSaleId: actor.pointOfSaleId! },
+            { destinationPointOfSaleId: actor.pointOfSaleId! },
+          ],
+        }),
+      },
+      include: this.transferRelations(),
+    });
+    if (!transfer) throw new NotFoundException('Traslado de inventario no encontrado');
+    return buildInventoryTicketPdf({
+      title: 'Traslado de inventario',
+      number: transfer.documentNumber,
+      date: formatDate(transfer.transferDate),
+      details: [
+        { label: 'Bodega de origen', value: transfer.originPointOfSale.name },
+        { label: 'Bodega de destino', value: transfer.destinationPointOfSale.name },
+      ],
+      items: [{
+        description: transfer.product.description,
+        quantity: decimalToNumber(transfer.quantity),
+        detail: `Origen: ${this.formatQuantity(decimalToNumber(transfer.originBalanceBefore))} -> ${this.formatQuantity(decimalToNumber(transfer.originBalanceAfter))} | Destino: ${this.formatQuantity(decimalToNumber(transfer.destinationBalanceBefore))} -> ${this.formatQuantity(decimalToNumber(transfer.destinationBalanceAfter))}`,
+      }],
+      observations: transfer.observation || undefined,
+      userName: transfer.user.name,
+      voided: transfer.status === RecordStatus.VOID,
+      voidReason: transfer.voidReason || undefined,
+    });
   }
 
   async findProductHistory(userId: string, query: QueryProductHistoryDto) {
