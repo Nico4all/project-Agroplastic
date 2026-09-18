@@ -20,6 +20,7 @@ import {
   Supplier,
   PriceListCategory,
   PriceListProduct,
+  NotificationsResult,
   InventoryEntry,
   InventoryAdjustment,
   InventoryTransfer,
@@ -154,10 +155,9 @@ export const inventoryApi = {
   createTransfer: async (payload: {
     originPointOfSaleId: string;
     destinationPointOfSaleId: string;
-    productId: string;
-    quantity: number;
+    items: Array<{ productId: string; quantity: number }>;
     observation?: string;
-  }) => (await api.post<InventoryTransfer>('/inventory/transfers', payload)).data,
+  }) => (await api.post<InventoryTransfer[]>('/inventory/transfers', payload)).data,
   updateTransfer: async (id: string, payload: { quantity: number; observation?: string }) =>
     (await api.patch<InventoryTransfer>(`/inventory/transfers/${id}`, payload)).data,
   voidTransfer: async (id: string, payload: { reason?: string }) =>
@@ -205,6 +205,13 @@ export const priceListApi = {
     pointOfSaleId: string;
     updates: Array<{ productId: string; primaryPrice?: number | null; secondaryPrice?: number | null }>;
   }) => (await api.patch<{ updated: number; pointOfSaleId: string }>('/price-list/products/prices/bulk', payload)).data,
+  notifications: async () => (await api.get<NotificationsResult>('/price-list/notifications')).data,
+  notify: async (pointOfSaleId: string) =>
+    (await api.post<{ notified: number; pointOfSaleId: string; pointOfSaleName: string }>('/price-list/notifications', { pointOfSaleId })).data,
+  markNotificationRead: async (id: string) =>
+    (await api.patch<{ ok: true }>(`/price-list/notifications/${id}/read`)).data,
+  markAllNotificationsRead: async () =>
+    (await api.patch<{ updated: number }>('/price-list/notifications/read-all')).data,
 };
 
 export const ordersApi = {

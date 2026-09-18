@@ -7,6 +7,7 @@ import { CreatePriceListCategoryDto } from './dto/create-price-list-category.dto
 import { CreatePriceListProductDto } from './dto/create-price-list-product.dto';
 import { QueryPriceListProductsDto } from './dto/query-price-list-products.dto';
 import { UpdatePriceListProductDto } from './dto/update-price-list-product.dto';
+import { NotifyPriceListDto } from './dto/notify-price-list.dto';
 import { PriceListService } from './price-list.service';
 
 @UseGuards(JwtAuthGuard)
@@ -17,6 +18,26 @@ export class PriceListController {
   @Get('categories')
   categories(@CurrentUser() user: { userId: string }) {
     return this.priceList.categories(user.userId);
+  }
+
+  @Get('notifications')
+  notifications(@CurrentUser() user: { userId: string }) {
+    return this.priceList.notifications(user.userId);
+  }
+
+  @Post('notifications')
+  notify(@CurrentUser() user: { userId: string }, @Body() dto: NotifyPriceListDto) {
+    return this.priceList.notifyPriceList(user.userId, dto);
+  }
+
+  @Patch('notifications/read-all')
+  markAllNotificationsRead(@CurrentUser() user: { userId: string }) {
+    return this.priceList.markAllNotificationsRead(user.userId);
+  }
+
+  @Patch('notifications/:id/read')
+  markNotificationRead(@CurrentUser() user: { userId: string }, @Param('id') id: string) {
+    return this.priceList.markNotificationRead(user.userId, id);
   }
 
   @Post('categories')

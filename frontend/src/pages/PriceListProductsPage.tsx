@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Layers3, Pencil, Percent, Plus, Search } from 'lucide-react';
+import { BellRing, Download, Layers3, Pencil, Percent, Plus, Search } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { pointsOfSaleApi, priceListApi, suppliersApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
@@ -325,7 +325,11 @@ export function PriceListProductsPage() {
     pointOfSaleId: isAdmin ? pointOfSaleId || undefined : undefined,
     isActive: canEdit ? undefined : true,
   }).filter(([, value]) => value !== undefined)), [search, categoryId, supplierId, pointOfSaleId, isAdmin, canEdit]);
-  const { data = [], isLoading } = useQuery({ queryKey: ['price-list-products', params], queryFn: () => priceListApi.products(params) });
+  const { data = [], isLoading } = useQuery({
+    queryKey: ['price-list-products', params],
+    queryFn: () => priceListApi.products(params),
+    enabled: !isAdmin || Boolean(pointOfSaleId),
+  });
   const { data: bulkProducts = [], isLoading: bulkProductsLoading } = useQuery({
     queryKey: ['price-list-products', 'bulk-adjustment', pointOfSaleId],
     queryFn: () => priceListApi.products({ pointOfSaleId, isActive: true }),
@@ -371,6 +375,11 @@ export function PriceListProductsPage() {
       toast('Categoría creada');
     },
     onError: (err) => toast(apiError(err, 'No se pudo crear la categoría'), 'error'),
+  });
+  const notifyWarehouse = useMutation({
+    mutationFn: () => priceListApi.notify(pointOfSaleId),
+    onSuccess: (result) => toast(`Notificación enviada a ${result.notified} usuario${result.notified === 1 ? '' : 's'} de ${result.pointOfSaleName}`),
+    onError: (err) => toast(apiError(err, 'No se pudo notificar a la bodega'), 'error'),
   });
 
   const openCreate = () => {
@@ -470,14 +479,14 @@ export function PriceListProductsPage() {
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-extrabold tracking-tight">Lista de precios</h1><p className="text-sm text-mute">Catálogo independiente de los productos usados en pedidos.</p></div>
-        <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={exporting || (isAdmin && !pointOfSaleId)} title={isAdmin && !pointOfSaleId ? 'Selecciona un punto de venta' : 'Generar Excel por categorías'} onClick={exportExcel}><Download className="h-4 w-4" /> {exporting ? 'Generando...' : 'Excel'}</Button>{canEdit && <><Button variant="secondary" disabled={!pointOfSaleId} title={pointOfSaleId ? 'Ajustar varios productos' : 'Selecciona un punto de venta'} onClick={openBulkAdjustment}><Percent className="h-4 w-4" /> Ajuste masivo</Button><Button variant="secondary" onClick={() => setCategoryModalOpen(true)}><Layers3 className="h-4 w-4" /> Categoría</Button><Button onClick={openCreate}><Plus className="h-4 w-4" /> Producto</Button></>}</div>
+        <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={exporting || (isAdmin && !pointOfSaleId)} title={isAdmin && !pointOfSaleId ? 'Selecciona un punto de venta' : 'Generar Excel por categorías'} onClick={exportExcel}><Download className="h-4 w-4" /> {exporting ? 'Generando...' : 'Excel'}</Button>{isAdmin && <Button variant="secondary" disabled={!pointOfSaleId || notifyWarehouse.isPending} title={pointOfSaleId ? 'Avisar a los usuarios de esta bodega' : 'Selecciona un punto de venta'} onClick={() => notifyWarehouse.mutate()}><BellRing className="h-4 w-4" /> {notifyWarehouse.isPending ? 'Notificando...' : 'Notificar bodega'}</Button>}{canEdit && <><Button variant="secondary" disabled={!pointOfSaleId} title={pointOfSaleId ? 'Ajustar varios productos' : 'Selecciona un punto de venta'} onClick={openBulkAdjustment}><Percent className="h-4 w-4" /> Ajuste masivo</Button><Button variant="secondary" onClick={() => setCategoryModalOpen(true)}><Layers3 className="h-4 w-4" /> Categoría</Button><Button onClick={openCreate}><Plus className="h-4 w-4" /> Producto</Button></>}</div>
       </div>
 
       <Card className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Buscar"><div className="relative"><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Referencia, medida o presentación" className="pl-9" /><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mute" /></div></Field>
         <Field label="Categoría"><Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Todas</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
         <Field label="Proveedor"><Select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}><option value="">Todos</option>{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
-        {isAdmin ? <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => setPointOfSaleId(event.target.value)}><option value="">Precio general</option>{points.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field> : <Field label="Punto de venta"><Input disabled value={user?.pointOfSale?.name || 'Sin asignar'} /></Field>}
+        {isAdmin ? <Field label="Punto de venta"><Select value={pointOfSaleId} onChange={(event) => setPointOfSaleId(event.target.value)}><option value="">Selecciona una bodega</option>{points.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field> : <Field label="Punto de venta"><Input disabled value={user?.pointOfSale?.name || 'Sin asignar'} /></Field>}
       </Card>
 
       {isLoading ? <Spinner /> : data.length ? <Card className="overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full min-w-[900px] table-fixed text-sm">

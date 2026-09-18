@@ -37,6 +37,10 @@ export class InventoryService {
       include: { product: true, pointOfSale: { select: { id: true, name: true } } },
       orderBy: { product: { description: 'asc' } },
     });
+    rows.sort((a, b) => {
+      const availabilityGroup = Number(b.quantity.gt(1)) - Number(a.quantity.gt(1));
+      return availabilityGroup || a.product.description.localeCompare(b.product.description, 'es-CO');
+    });
     return rows.map((row) => ({
       id: row.id,
       productId: row.productId,
@@ -824,91 +828,105 @@ export class InventoryService {
     if (originPointOfSaleId === destinationPointOfSaleId) {
       throw new BadRequestException('La bodega de origen y destino deben ser diferentes');
     }
-    const quantity = new Prisma.Decimal(dto.quantity);
+    const productIds = dto.items.map((item) => item.productId);
+    if (new Set(productIds).size !== productIds.length) {
+      throw new BadRequestException('No repitas productos en el traslado');
+    }
+    const items = [...dto.items].sort((a, b) => a.productId.localeCompare(b.productId));
 
-    const transfer = await this.prisma.$transaction(async (tx) => {
+    const transfers = await this.prisma.$transaction(async (tx) => {
       const numberedOrigin = await tx.pointOfSale.update({
         where: { id: originPointOfSaleId },
-        data: { nextInventoryTransferNumber: { increment: 1 } },
+        data: { nextInventoryTransferNumber: { increment: items.length } },
         select: { documentPrefix: true, nextInventoryTransferNumber: true, isActive: true },
       });
       if (!numberedOrigin.isActive) throw new BadRequestException('La bodega de origen está inactiva');
-      const documentSequence = numberedOrigin.nextInventoryTransferNumber - 1;
+      const firstDocumentSequence = numberedOrigin.nextInventoryTransferNumber - items.length;
+      const createdTransfers = [];
 
-      const originChanged = await tx.inventoryStock.updateMany({
-        where: { pointOfSaleId: originPointOfSaleId, productId: dto.productId, isActive: true, quantity: { gte: quantity } },
-        data: { quantity: { decrement: quantity } },
-      });
-      if (originChanged.count !== 1) {
-        const current = await tx.inventoryStock.findUnique({
-          where: { pointOfSaleId_productId: { pointOfSaleId: originPointOfSaleId, productId: dto.productId } },
-          include: { product: { select: { description: true } } },
+      for (const [index, item] of items.entries()) {
+        const quantity = new Prisma.Decimal(item.quantity);
+        const documentSequence = firstDocumentSequence + index;
+        const originChanged = await tx.inventoryStock.updateMany({
+          where: { pointOfSaleId: originPointOfSaleId, productId: item.productId, isActive: true, quantity: { gte: quantity } },
+          data: { quantity: { decrement: quantity } },
         });
-        if (!current || !current.isActive) throw new BadRequestException('El producto no está activo en la bodega de origen');
-        throw new BadRequestException(
-          `Inventario insuficiente para ${current.product.description}. Existencia actual: ${this.formatQuantity(decimalToNumber(current.quantity))}`,
-        );
-      }
+        if (originChanged.count !== 1) {
+          const current = await tx.inventoryStock.findUnique({
+            where: { pointOfSaleId_productId: { pointOfSaleId: originPointOfSaleId, productId: item.productId } },
+            include: { product: { select: { description: true } } },
+          });
+          if (!current || !current.isActive) throw new BadRequestException('Uno de los productos no está activo en la bodega de origen');
+          throw new BadRequestException(
+            `Inventario insuficiente para ${current.product.description}. Existencia actual: ${this.formatQuantity(decimalToNumber(current.quantity))}`,
+          );
+        }
 
-      const destinationChanged = await tx.inventoryStock.updateMany({
-        where: { pointOfSaleId: destinationPointOfSaleId, productId: dto.productId, isActive: true },
-        data: { quantity: { increment: quantity } },
-      });
-      if (destinationChanged.count !== 1) {
-        throw new BadRequestException('El producto no está activo en la bodega de destino');
-      }
+        const destinationChanged = await tx.inventoryStock.updateMany({
+          where: { pointOfSaleId: destinationPointOfSaleId, productId: item.productId, isActive: true },
+          data: { quantity: { increment: quantity } },
+        });
+        if (destinationChanged.count !== 1) {
+          const product = await tx.product.findUnique({ where: { id: item.productId }, select: { description: true } });
+          throw new BadRequestException(`${product?.description || 'Uno de los productos'} no está activo en la bodega de destino`);
+        }
 
-      const [originStock, destinationStock] = await Promise.all([
-        tx.inventoryStock.findUniqueOrThrow({
-          where: { pointOfSaleId_productId: { pointOfSaleId: originPointOfSaleId, productId: dto.productId } },
-          include: { product: { select: { description: true } } },
-        }),
-        tx.inventoryStock.findUniqueOrThrow({
-          where: { pointOfSaleId_productId: { pointOfSaleId: destinationPointOfSaleId, productId: dto.productId } },
-        }),
-      ]);
-      const created = await tx.inventoryTransfer.create({
-        data: {
-          userId: actor.id,
-          originPointOfSaleId,
-          destinationPointOfSaleId,
-          productId: dto.productId,
-          documentSequence,
-          documentNumber: `${numberedOrigin.documentPrefix}-TI-${documentSequence}`,
-          quantity,
-          originBalanceBefore: originStock.quantity.plus(quantity),
-          originBalanceAfter: originStock.quantity,
-          destinationBalanceBefore: destinationStock.quantity.minus(quantity),
-          destinationBalanceAfter: destinationStock.quantity,
-          observation: dto.observation?.trim() || null,
-        },
-      });
-      await tx.inventoryMovement.createMany({
-        data: [
-          {
-            pointOfSaleId: originPointOfSaleId,
-            productId: dto.productId,
+        const [originStock, destinationStock] = await Promise.all([
+          tx.inventoryStock.findUniqueOrThrow({
+            where: { pointOfSaleId_productId: { pointOfSaleId: originPointOfSaleId, productId: item.productId } },
+            include: { product: { select: { description: true } } },
+          }),
+          tx.inventoryStock.findUniqueOrThrow({
+            where: { pointOfSaleId_productId: { pointOfSaleId: destinationPointOfSaleId, productId: item.productId } },
+          }),
+        ]);
+        const created = await tx.inventoryTransfer.create({
+          data: {
             userId: actor.id,
-            inventoryTransferId: created.id,
-            type: InventoryMovementType.TRANSFER_OUT,
-            quantityChange: quantity.negated(),
-            balanceAfter: originStock.quantity,
+            originPointOfSaleId,
+            destinationPointOfSaleId,
+            productId: item.productId,
+            documentSequence,
+            documentNumber: `${numberedOrigin.documentPrefix}-TI-${documentSequence}`,
+            quantity,
+            originBalanceBefore: originStock.quantity.plus(quantity),
+            originBalanceAfter: originStock.quantity,
+            destinationBalanceBefore: destinationStock.quantity.minus(quantity),
+            destinationBalanceAfter: destinationStock.quantity,
+            observation: dto.observation?.trim() || null,
           },
-          {
-            pointOfSaleId: destinationPointOfSaleId,
-            productId: dto.productId,
-            userId: actor.id,
-            inventoryTransferId: created.id,
-            type: InventoryMovementType.TRANSFER_IN,
-            quantityChange: quantity,
-            balanceAfter: destinationStock.quantity,
-          },
-        ],
-      });
-      return tx.inventoryTransfer.findUniqueOrThrow({ where: { id: created.id }, include: this.transferRelations() });
+        });
+        await tx.inventoryMovement.createMany({
+          data: [
+            {
+              pointOfSaleId: originPointOfSaleId,
+              productId: item.productId,
+              userId: actor.id,
+              inventoryTransferId: created.id,
+              type: InventoryMovementType.TRANSFER_OUT,
+              quantityChange: quantity.negated(),
+              balanceAfter: originStock.quantity,
+            },
+            {
+              pointOfSaleId: destinationPointOfSaleId,
+              productId: item.productId,
+              userId: actor.id,
+              inventoryTransferId: created.id,
+              type: InventoryMovementType.TRANSFER_IN,
+              quantityChange: quantity,
+              balanceAfter: destinationStock.quantity,
+            },
+          ],
+        });
+        createdTransfers.push(await tx.inventoryTransfer.findUniqueOrThrow({
+          where: { id: created.id },
+          include: this.transferRelations(),
+        }));
+      }
+      return createdTransfers;
     });
 
-    return this.serializeTransfer(transfer);
+    return transfers.map((transfer) => this.serializeTransfer(transfer));
   }
 
   async updateTransfer(userId: string, id: string, dto: UpdateInventoryTransferDto) {
@@ -1264,6 +1282,10 @@ export class InventoryService {
       where: { pointOfSaleId },
       include: { product: { select: { description: true } } },
       orderBy: { product: { description: 'asc' } },
+    });
+    rows.sort((a, b) => {
+      const availabilityGroup = Number(b.quantity.gt(1)) - Number(a.quantity.gt(1));
+      return availabilityGroup || a.product.description.localeCompare(b.product.description, 'es-CO');
     });
     const serialized = rows.map((row) => ({
       productDescription: row.product.description,

@@ -11,6 +11,7 @@ import { CreatePriceListCategoryDto } from './dto/create-price-list-category.dto
 import { CreatePriceListProductDto } from './dto/create-price-list-product.dto';
 import { QueryPriceListProductsDto } from './dto/query-price-list-products.dto';
 import { UpdatePriceListProductDto } from './dto/update-price-list-product.dto';
+import { NotifyPriceListDto } from './dto/notify-price-list.dto';
 
 @Injectable()
 export class PriceListService {
@@ -22,6 +23,71 @@ export class PriceListService {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: { _count: { select: { products: true } } },
     });
+  }
+
+  async notifications(userId: string) {
+    await this.users.getActiveUser(userId);
+    const where = { recipientUserId: userId };
+    const [data, unreadCount] = await this.prisma.$transaction([
+      this.prisma.appNotification.findMany({
+        where,
+        include: {
+          sender: { select: { id: true, name: true } },
+          pointOfSale: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      }),
+      this.prisma.appNotification.count({ where: { ...where, readAt: null } }),
+    ]);
+    return { data, unreadCount };
+  }
+
+  async notifyPriceList(userId: string, dto: NotifyPriceListDto) {
+    const actor = await this.users.ensureAdmin(userId);
+    const point = await this.prisma.pointOfSale.findUnique({ where: { id: dto.pointOfSaleId } });
+    if (!point || !point.isActive) throw new NotFoundException('Punto de venta no encontrado o inactivo');
+    const recipients = await this.prisma.user.findMany({
+      where: { role: UserRole.BODEGA, pointOfSaleId: point.id, isActive: true },
+      select: { id: true },
+    });
+    if (!recipients.length) throw new BadRequestException('Esta bodega no tiene usuarios activos para notificar');
+
+    const createdAt = new Date();
+    await this.prisma.appNotification.createMany({
+      data: recipients.map((recipient) => ({
+        id: randomUUID(),
+        recipientUserId: recipient.id,
+        senderUserId: actor.id,
+        pointOfSaleId: point.id,
+        title: 'Lista de precios actualizada',
+        message: `Hay cambios disponibles en la lista de precios de ${point.name}.`,
+        createdAt,
+      })),
+    });
+    return { notified: recipients.length, pointOfSaleId: point.id, pointOfSaleName: point.name };
+  }
+
+  async markNotificationRead(userId: string, notificationId: string) {
+    await this.users.getActiveUser(userId);
+    const result = await this.prisma.appNotification.updateMany({
+      where: { id: notificationId, recipientUserId: userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    if (!result.count) {
+      const exists = await this.prisma.appNotification.findFirst({ where: { id: notificationId, recipientUserId: userId } });
+      if (!exists) throw new NotFoundException('Notificación no encontrada');
+    }
+    return { ok: true };
+  }
+
+  async markAllNotificationsRead(userId: string) {
+    await this.users.getActiveUser(userId);
+    const result = await this.prisma.appNotification.updateMany({
+      where: { recipientUserId: userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return { updated: result.count };
   }
 
   async createCategory(userId: string, dto: CreatePriceListCategoryDto) {

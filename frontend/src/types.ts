@@ -333,6 +333,24 @@ export type PriceListProduct = {
   supplier: Supplier;
 };
 
+export type AppNotification = {
+  id: string;
+  recipientUserId: string;
+  senderUserId?: string | null;
+  pointOfSaleId: string;
+  title: string;
+  message: string;
+  readAt?: string | null;
+  createdAt: string;
+  sender?: { id: string; name: string } | null;
+  pointOfSale: Pick<PointOfSale, 'id' | 'name'>;
+};
+
+export type NotificationsResult = {
+  data: AppNotification[];
+  unreadCount: number;
+};
+
 export type OrderItem = {
   id: string;
   productId: string;

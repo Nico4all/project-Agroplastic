@@ -129,6 +129,8 @@ model User {
   voidedExpenses       Expense[]               @relation("ExpenseVoidUser")
   refreshTokens        RefreshToken[]
   emailCodes           EmailVerificationCode[]
+  receivedNotifications AppNotification[]       @relation("NotificationRecipient")
+  sentNotifications     AppNotification[]       @relation("NotificationSender")
   pointOfSale          PointOfSale?            @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
 
   @@index([pointOfSaleId])
@@ -164,6 +166,7 @@ model PointOfSale {
   incomingInventoryTransfers    InventoryTransfer[]   @relation("InventoryTransferDestination")
   inventoryMovements            InventoryMovement[]
   portfolioCollections          PortfolioCollection[]
+  notifications                 AppNotification[]
 
   @@index([isActive])
   @@map("points_of_sale")
@@ -240,6 +243,24 @@ model PointOfSalePrice {
   @@unique([pointOfSaleId, productId])
   @@index([productId])
   @@map("point_of_sale_prices")
+}
+
+model AppNotification {
+  id              String      @id @default(uuid())
+  recipientUserId String      @map("recipient_user_id")
+  senderUserId    String?     @map("sender_user_id")
+  pointOfSaleId   String      @map("point_of_sale_id")
+  title           String      @db.VarChar(191)
+  message         String      @db.VarChar(500)
+  readAt          DateTime?   @map("read_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  recipient       User        @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  sender          User?       @relation("NotificationSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+  pointOfSale     PointOfSale @relation(fields: [pointOfSaleId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId, readAt, createdAt])
+  @@index([pointOfSaleId, createdAt])
+  @@map("app_notifications")
 }
 
 model Client {

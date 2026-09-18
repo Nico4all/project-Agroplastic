@@ -32,6 +32,12 @@ export class ProductsService {
       include: { product: true, pointOfSale: { select: { id: true, name: true } } },
       orderBy: [{ isActive: 'desc' }, { product: { description: 'asc' } }],
     });
+    rows.sort((a, b) => {
+      const availabilityGroup = Number(b.quantity.gt(1)) - Number(a.quantity.gt(1));
+      if (availabilityGroup !== 0) return availabilityGroup;
+      if (a.isActive !== b.isActive) return Number(b.isActive) - Number(a.isActive);
+      return a.product.description.localeCompare(b.product.description, 'es-CO');
+    });
     return rows.map((row) => this.serialize(row));
   }
 
