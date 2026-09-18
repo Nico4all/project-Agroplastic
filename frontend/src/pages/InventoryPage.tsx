@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Ban, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Pencil, Search, SlidersHorizontal, Trash2, TriangleAlert, Truck } from 'lucide-react';
+import { ArrowLeftRight, Ban, Boxes, Download, FileSpreadsheet, FileText, History, PackagePlus, Pencil, Plus, Search, SlidersHorizontal, Trash2, TriangleAlert, Truck } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { inventoryApi, pointsOfSaleApi, productsApi } from '../api/resources';
 import { useAuth } from '../state/AuthContext';
@@ -10,7 +10,9 @@ import { downloadBlob } from '../utils/download';
 import { isAdminRole } from '../utils/roles';
 
 type EntryLine = { productId: string; quantity: string };
+type TransferLine = { productId: string; quantity: string };
 const emptyLine = (): EntryLine => ({ productId: '', quantity: '1' });
+const emptyTransferLine = (): TransferLine => ({ productId: '', quantity: '1' });
 const today = () => new Date().toLocaleDateString('en-CA');
 
 function getApiError(error: any, fallback: string) {
@@ -62,8 +64,7 @@ export function InventoryPage() {
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferOriginId, setTransferOriginId] = useState('');
   const [transferDestinationId, setTransferDestinationId] = useState('');
-  const [transferProductId, setTransferProductId] = useState('');
-  const [transferQuantity, setTransferQuantity] = useState('1');
+  const [transferLines, setTransferLines] = useState<TransferLine[]>([emptyTransferLine()]);
   const [transferObservation, setTransferObservation] = useState('');
   const [transferError, setTransferError] = useState('');
   const [transferPage, setTransferPage] = useState(1);
@@ -229,7 +230,7 @@ export function InventoryPage() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setPointOfSaleId(variables.originPointOfSaleId);
-      toast(`Traslado ${created.documentNumber} registrado`);
+      toast(`${created.length} producto${created.length === 1 ? '' : 's'} trasladado${created.length === 1 ? '' : 's'}`);
       setTransferModalOpen(false);
     },
     onError: (err) => setTransferError(getApiError(err, 'No se pudo realizar el traslado')),
@@ -310,8 +311,7 @@ export function InventoryPage() {
     const origin = pointOfSaleId || points.find((point) => point.isActive)?.id || '';
     setTransferOriginId(origin);
     setTransferDestinationId(points.find((point) => point.isActive && point.id !== origin)?.id || '');
-    setTransferProductId('');
-    setTransferQuantity('1');
+    setTransferLines([emptyTransferLine()]);
     setTransferObservation('');
     setTransferError('');
     setTransferModalOpen(true);
@@ -321,8 +321,7 @@ export function InventoryPage() {
     setEditingTransfer(movement);
     setTransferOriginId(movement.originPointOfSaleId);
     setTransferDestinationId(movement.destinationPointOfSaleId);
-    setTransferProductId(movement.productId);
-    setTransferQuantity(String(movement.quantity));
+    setTransferLines([{ productId: movement.productId, quantity: String(movement.quantity) }]);
     setTransferObservation(movement.observation || '');
     setTransferError('');
     setTransferModalOpen(true);
@@ -335,6 +334,10 @@ export function InventoryPage() {
 
   const updateLine = (index: number, patch: Partial<EntryLine>) => {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  };
+
+  const updateTransferLine = (index: number, patch: Partial<TransferLine>) => {
+    setTransferLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
   };
 
   async function submit(event: FormEvent) {
@@ -398,17 +401,17 @@ export function InventoryPage() {
     setTransferError('');
     if (!transferOriginId || !transferDestinationId) return setTransferError('Selecciona las bodegas de origen y destino');
     if (transferOriginId === transferDestinationId) return setTransferError('Las bodegas de origen y destino deben ser diferentes');
-    if (!transferProductId) return setTransferError('Selecciona un producto');
-    const quantity = Number(transferQuantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) return setTransferError('Ingresa una cantidad válida');
+    if (transferLines.some((line) => !line.productId)) return setTransferError('Selecciona un producto en cada línea');
+    if (new Set(transferLines.map((line) => line.productId)).size !== transferLines.length) return setTransferError('No repitas productos en el traslado');
+    const quantities = transferLines.map((line) => Number(line.quantity));
+    if (quantities.some((quantity) => !Number.isFinite(quantity) || quantity <= 0)) return setTransferError('Ingresa una cantidad válida en cada línea');
     if (editingTransfer) {
-      await updateTransfer.mutateAsync({ id: editingTransfer.id, quantity, observation: transferObservation });
+      await updateTransfer.mutateAsync({ id: editingTransfer.id, quantity: quantities[0], observation: transferObservation });
     } else {
       await transfer.mutateAsync({
         originPointOfSaleId: transferOriginId,
         destinationPointOfSaleId: transferDestinationId,
-        productId: transferProductId,
-        quantity,
+        items: transferLines.map((line, index) => ({ productId: line.productId, quantity: quantities[index] })),
         observation: transferObservation,
       });
     }
@@ -429,15 +432,22 @@ export function InventoryPage() {
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
-  const transferProduct = transferProducts.find((product) => product.id === transferProductId);
-  const transferAmount = Number(transferQuantity) || 0;
-  const resultingOriginQuantity = transferProduct
-    ? transferProduct.quantity + (editingTransfer?.quantity || 0) - transferAmount
-    : null;
   const transferProductOptions = transferProducts.map((product) => ({
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
+  const transferLineDetails = transferLines.map((line) => {
+    const product = transferProducts.find((item) => item.id === line.productId);
+    const quantity = Number(line.quantity) || 0;
+    const resultingQuantity = product
+      ? product.quantity + (editingTransfer?.quantity || 0) - quantity
+      : null;
+    return { product, quantity, resultingQuantity };
+  });
+  const invalidTransferLines = transferLines.some((line, index) => {
+    const detail = transferLineDetails[index];
+    return !line.productId || detail.quantity <= 0 || detail.resultingQuantity === null || detail.resultingQuantity < 0;
+  });
   const historyProductOptions = historyProducts.map((product) => ({
     value: product.id,
     label: `${product.description} - existencia ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}${product.isActive ? '' : ' - inactivo'}`,
@@ -697,19 +707,33 @@ export function InventoryPage() {
 
       <Modal open={isAdmin && transferModalOpen} onClose={() => { setTransferModalOpen(false); setEditingTransfer(null); }} title={editingTransfer ? `Editar traslado ${editingTransfer.documentNumber}` : 'Nuevo traslado de inventario'} size="large">
         <form onSubmit={submitTransfer} className="space-y-4">
-          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">{editingTransfer ? 'Al guardar, se aplicará solamente la diferencia frente a la cantidad original y se conservará el historial.' : 'El traslado restará el producto de la bodega de origen y lo sumará en la bodega de destino en una sola operación.'}</p>
+          <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm">{editingTransfer ? 'Al guardar, se aplicará solamente la diferencia frente a la cantidad original y se conservará el historial.' : 'Puedes trasladar varios productos a la vez. Todos se aplicarán juntos; si uno no tiene existencia suficiente, no se trasladará ninguno.'}</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Bodega de origen"><Select disabled={Boolean(editingTransfer)} value={transferOriginId} onChange={(event) => { const origin = event.target.value; setTransferOriginId(origin); setTransferProductId(''); if (transferDestinationId === origin) setTransferDestinationId(''); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
+            <Field label="Bodega de origen"><Select disabled={Boolean(editingTransfer)} value={transferOriginId} onChange={(event) => { const origin = event.target.value; setTransferOriginId(origin); setTransferLines([emptyTransferLine()]); if (transferDestinationId === origin) setTransferDestinationId(''); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
             <Field label="Bodega de destino"><Select disabled={Boolean(editingTransfer)} value={transferDestinationId} onChange={(event) => { setTransferDestinationId(event.target.value); setTransferError(''); }}><option value="">Selecciona</option>{points.filter((point) => point.isActive && point.id !== transferOriginId).map((point) => <option key={point.id} value={point.id}>{point.name}</option>)}</Select></Field>
           </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-            <Field label="Producto">{editingTransfer ? <Input disabled value={editingTransfer.product?.description || transferProduct?.description || '-'} /> : <SearchableSelect value={transferProductId} onChange={setTransferProductId} options={transferProductOptions} disabled={!transferOriginId || transferProductsLoading} placeholder={transferProductsLoading ? 'Cargando productos...' : 'Buscar producto en origen'} emptyMessage="No hay productos activos en el origen" />}</Field>
-            <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={transferQuantity} onChange={(event) => setTransferQuantity(event.target.value)} /></Field>
+          <div className="space-y-3">
+            {transferLines.map((line, index) => {
+              const detail = transferLineDetails[index];
+              const availableOptions = transferProductOptions.filter((option) => !transferLines.some((other, otherIndex) => otherIndex !== index && other.productId === option.value));
+              return <div key={index} className="rounded-lg border border-line p-3">
+                <div className={`grid gap-3 ${editingTransfer ? 'sm:grid-cols-[1fr_180px]' : 'sm:grid-cols-[1fr_180px_auto]'}`}>
+                  <Field label={`Producto ${index + 1}`}>{editingTransfer ? <Input disabled value={editingTransfer.product?.description || detail.product?.description || '-'} /> : <SearchableSelect value={line.productId} onChange={(value) => updateTransferLine(index, { productId: value })} options={availableOptions} disabled={!transferOriginId || transferProductsLoading} placeholder={transferProductsLoading ? 'Cargando productos...' : 'Buscar producto en origen'} emptyMessage="No hay más productos disponibles" />}</Field>
+                  <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateTransferLine(index, { quantity: event.target.value })} /></Field>
+                  {!editingTransfer && <div className="flex items-end"><Button variant="ghost" className="w-full px-3 text-expense sm:w-auto" disabled={transferLines.length === 1} aria-label={`Quitar producto ${index + 1}`} onClick={() => setTransferLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 className="h-4 w-4" /><span className="sm:hidden">Quitar</span></Button></div>}
+                </div>
+                {detail.product && detail.resultingQuantity !== null && <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${detail.resultingQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}>
+                  {editingTransfer && <span>Cantidad registrada: <strong>{editingTransfer.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong> · </span>}
+                  <span>Existencia: <strong>{detail.product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong> · Después: <strong>{detail.resultingQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></span>
+                  {detail.resultingQuantity < 0 && <p className="mt-1 font-semibold">La cantidad supera la existencia disponible.</p>}
+                </div>}
+              </div>;
+            })}
+            {!editingTransfer && <Button variant="secondary" disabled={!transferOriginId || transferLines.length >= transferProducts.length} onClick={() => setTransferLines((current) => [...current, emptyTransferLine()])}><Plus className="h-4 w-4" /> Agregar producto</Button>}
           </div>
-          {transferProduct && resultingOriginQuantity !== null && <div className={`rounded-lg px-3 py-3 text-sm ${resultingOriginQuantity < 0 ? 'bg-expense-soft text-expense' : 'bg-paper text-ink'}`}>{editingTransfer && <p>Cantidad registrada: <strong>{editingTransfer.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>}<p>Existencia actual en origen: <strong>{transferProduct.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p><p>Existencia después del traslado: <strong>{resultingOriginQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</strong></p>{resultingOriginQuantity < 0 && <p className="mt-1 font-semibold">La cantidad supera la existencia disponible.</p>}</div>}
           <Field label="Observación" hint="Opcional"><textarea className="input min-h-20 resize-y" maxLength={1000} value={transferObservation} onChange={(event) => setTransferObservation(event.target.value)} placeholder="Motivo, transportador o referencia del traslado" /></Field>
           {transferError && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{transferError}</p>}
-          <div className="flex justify-end gap-2"><Button variant="secondary" disabled={transfer.isPending || updateTransfer.isPending} onClick={() => { setTransferModalOpen(false); setEditingTransfer(null); }}>Cancelar</Button><Button type="submit" disabled={transfer.isPending || updateTransfer.isPending || !transferOriginId || !transferDestinationId || !transferProductId || transferAmount <= 0 || resultingOriginQuantity === null || resultingOriginQuantity < 0}>{transfer.isPending || updateTransfer.isPending ? 'Guardando...' : editingTransfer ? 'Guardar cambios' : 'Registrar traslado'}</Button></div>
+          <div className="flex justify-end gap-2"><Button variant="secondary" disabled={transfer.isPending || updateTransfer.isPending} onClick={() => { setTransferModalOpen(false); setEditingTransfer(null); }}>Cancelar</Button><Button type="submit" disabled={transfer.isPending || updateTransfer.isPending || !transferOriginId || !transferDestinationId || invalidTransferLines}>{transfer.isPending || updateTransfer.isPending ? 'Guardando...' : editingTransfer ? 'Guardar cambios' : `Trasladar ${transferLines.length} producto${transferLines.length === 1 ? '' : 's'}`}</Button></div>
         </form>
       </Modal>
 

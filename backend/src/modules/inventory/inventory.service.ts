@@ -924,7 +924,7 @@ export class InventoryService {
         }));
       }
       return createdTransfers;
-    });
+    }, { timeout: 30000 });
 
     return transfers.map((transfer) => this.serializeTransfer(transfer));
   }
