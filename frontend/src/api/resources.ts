@@ -103,8 +103,8 @@ export const pointsOfSaleApi = {
 
 export const productsApi = {
   list: async (params?: Record<string, unknown>) => (await api.get<Product[]>('/products', { params })).data,
-  create: async (payload: { description: string; pointOfSaleId: string }) => (await api.post<Product>('/products', payload)).data,
-  update: async (id: string, payload: { pointOfSaleId: string; description?: string; isActive?: boolean }) =>
+  create: async (payload: { description: string; pointOfSaleId: string; unitPrice: number; packageLabel?: string | null; unitsPerPackage?: number | null; packagePrice?: number | null }) => (await api.post<Product>('/products', payload)).data,
+  update: async (id: string, payload: { pointOfSaleId: string; description?: string; unitPrice?: number; packageLabel?: string | null; unitsPerPackage?: number | null; packagePrice?: number | null; isActive?: boolean }) =>
     (await api.patch<Product>(`/products/${id}`, payload)).data,
 };
 
@@ -231,7 +231,7 @@ export const ordersApi = {
     deliveryAddress: string;
     clientPhone: string;
     observations?: string;
-    items: Array<{ productId: string; quantity: number; unitPrice: number }>;
+    items: Array<{ productId: string; quantity: number; saleUnit: 'UNIT' | 'PACKAGE' }>;
     payments: Array<{ method: OrderPaymentMethod; amount: number }>;
   }) =>
     (await api.post<Order>('/orders', payload)).data,

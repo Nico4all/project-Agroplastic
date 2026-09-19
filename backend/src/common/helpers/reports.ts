@@ -41,6 +41,7 @@ export type OrderTicketData = {
   items: Array<{
     description: string;
     quantity: number;
+    presentationLabel: string;
     unitPrice: number;
     lineTotal: number;
   }>;
@@ -673,7 +674,7 @@ export async function buildOrderTicketPdf(data: OrderTicketData) {
   y += 20;
   data.items.forEach((item, itemIndex) => {
     const descriptionHeight = layout.descriptionHeights[itemIndex];
-    ticketTableCell(doc, item.description, 16, y, contentWidth, descriptionHeight, { font: 'Helvetica-Bold', fontSize: 8 });
+    ticketTableCell(doc, `${item.description} (${item.presentationLabel})`, 16, y, contentWidth, descriptionHeight, { font: 'Helvetica-Bold', fontSize: 8 });
     y += descriptionHeight;
     ticketTableCell(doc, formatQuantity(item.quantity), 16, y, quantityWidth, 22, { align: 'center', fontSize: 7.5 });
     ticketTableCell(doc, formatMoney(item.unitPrice), 16 + quantityWidth, y, unitPriceWidth, 22, { align: 'right', fontSize: 7.2 });
@@ -743,7 +744,7 @@ function measureOrderTicket(data: OrderTicketData, pageWidth: number) {
     : 0;
   const descriptionHeights = data.items.map((item) => {
     measureDoc.font('Helvetica-Bold').fontSize(8);
-    return Math.max(24, measureDoc.heightOfString(item.description, { width: contentWidth - 12 }) + 10);
+    return Math.max(24, measureDoc.heightOfString(`${item.description} (${item.presentationLabel})`, { width: contentWidth - 12 }) + 10);
   });
 
   y += 15;

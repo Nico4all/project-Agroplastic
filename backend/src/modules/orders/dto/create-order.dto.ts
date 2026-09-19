@@ -1,20 +1,19 @@
 import { Type } from 'class-transformer';
-import { OrderPaymentMethod } from '@prisma/client';
+import { OrderPaymentMethod, OrderSaleUnit } from '@prisma/client';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class CreateOrderItemDto {
   @IsString()
   productId: string;
 
+  @IsOptional()
+  @IsEnum(OrderSaleUnit)
+  saleUnit: OrderSaleUnit = OrderSaleUnit.UNIT;
+
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.001)
   quantity: number;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
-  unitPrice: number;
 }
 
 export class CreateOrderPaymentDto {

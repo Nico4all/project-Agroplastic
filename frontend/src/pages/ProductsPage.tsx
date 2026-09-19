@@ -6,6 +6,7 @@ import { useAuth } from '../state/AuthContext';
 import { Product } from '../types';
 import { Button, Card, EmptyState, Field, Input, Modal, Select, Spinner, Toggle, useToast } from '../ui/components';
 import { isAdminRole } from '../utils/roles';
+import { money } from '../utils/format';
 
 function getApiError(error: any, fallback: string) {
   const message = error?.response?.data?.message;
@@ -22,6 +23,10 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [description, setDescription] = useState('');
+  const [unitPrice, setUnitPrice] = useState('');
+  const [packageLabel, setPackageLabel] = useState('');
+  const [unitsPerPackage, setUnitsPerPackage] = useState('');
+  const [packagePrice, setPackagePrice] = useState('');
   const [editing, setEditing] = useState<Product | null>(null);
   const [error, setError] = useState('');
   const { data: points = [] } = useQuery({ queryKey: ['points-of-sale'], queryFn: pointsOfSaleApi.list, enabled: isAdmin });
@@ -48,13 +53,17 @@ export function ProductsPage() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       toast('Producto agregado al punto de venta');
       setDescription('');
+      setUnitPrice('');
+      setPackageLabel('');
+      setUnitsPerPackage('');
+      setPackagePrice('');
       setModalOpen(false);
     },
     onError: (err) => setError(getApiError(err, 'No se pudo crear el producto')),
   });
 
   const update = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { pointOfSaleId: string; description?: string; isActive?: boolean } }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: { pointOfSaleId: string; description?: string; unitPrice?: number; packageLabel?: string | null; unitsPerPackage?: number | null; packagePrice?: number | null; isActive?: boolean } }) =>
       productsApi.update(id, payload),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -72,6 +81,10 @@ export function ProductsPage() {
   const openCreate = () => {
     setEditing(null);
     setDescription('');
+    setUnitPrice('');
+    setPackageLabel('');
+    setUnitsPerPackage('');
+    setPackagePrice('');
     setError('');
     setModalOpen(true);
   };
@@ -79,6 +92,10 @@ export function ProductsPage() {
   const openEdit = (product: Product) => {
     setEditing(product);
     setDescription(product.description);
+    setUnitPrice(String(product.unitPrice));
+    setPackageLabel(product.packageLabel || '');
+    setUnitsPerPackage(product.unitsPerPackage == null ? '' : String(product.unitsPerPackage));
+    setPackagePrice(product.packagePrice == null ? '' : String(product.packagePrice));
     setError('');
     setModalOpen(true);
   };
@@ -87,8 +104,17 @@ export function ProductsPage() {
     event.preventDefault();
     setError('');
     if (!pointOfSaleId) return setError('Selecciona un punto de venta');
-    if (editing) await update.mutateAsync({ id: editing.id, payload: { pointOfSaleId, description } });
-    else await create.mutateAsync({ description, pointOfSaleId });
+    const price = Number(unitPrice);
+    if (!Number.isFinite(price) || price <= 0) return setError('Ingresa un precio válido mayor a cero');
+    const hasPackageData = Boolean(packageLabel.trim() || unitsPerPackage || packagePrice);
+    if (hasPackageData && (!packageLabel.trim() || Number(unitsPerPackage) <= 0 || Number(packagePrice) <= 0)) {
+      return setError('Completa el nombre, las unidades equivalentes y el precio de la presentación');
+    }
+    const conversion = hasPackageData
+      ? { packageLabel: packageLabel.trim(), unitsPerPackage: Number(unitsPerPackage), packagePrice: Number(packagePrice) }
+      : { packageLabel: null, unitsPerPackage: null, packagePrice: null };
+    if (editing) await update.mutateAsync({ id: editing.id, payload: { pointOfSaleId, description, unitPrice: price, ...conversion } });
+    else await create.mutateAsync({ description, pointOfSaleId, unitPrice: price, ...conversion });
   }
 
   return (
@@ -126,11 +152,13 @@ export function ProductsPage() {
         <Card className="overflow-hidden p-0">
           <div className="border-b border-line bg-brand-soft/40 px-4 py-3 text-sm">Inventario de <strong>{pointName}</strong></div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm">
-              <thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Descripción</th><th className="px-4 py-3 text-right">Existencia</th><th className="px-4 py-3">Estado</th>{isAdmin && <th className="px-4 py-3 text-right">Acciones</th>}</tr></thead>
+            <table className="w-full min-w-[820px] text-sm">
+              <thead className="bg-paper text-left text-xs uppercase text-mute"><tr><th className="px-4 py-3">Descripción</th><th className="px-4 py-3 text-right">Precio unidad</th><th className="px-4 py-3">Presentación alternativa</th><th className="px-4 py-3 text-right">Existencia</th><th className="px-4 py-3">Estado</th>{isAdmin && <th className="px-4 py-3 text-right">Acciones</th>}</tr></thead>
               <tbody className="divide-y divide-line">{data.map((product) => (
                 <tr key={product.id}>
                   <td className="px-4 py-3"><div className="flex items-center gap-2"><Package className="h-4 w-4 text-brand" /><span className="font-semibold">{product.description}</span></div></td>
+                  <td className="money px-4 py-3 text-right font-bold text-brand-dark">{product.unitPrice > 0 ? money(product.unitPrice) : <span className="text-expense">Sin definir</span>}</td>
+                  <td className="px-4 py-3">{product.packageLabel && product.unitsPerPackage && product.packagePrice ? <><span className="font-semibold">{product.packageLabel}: {money(product.packagePrice)}</span><span className="block text-xs text-mute">1 {product.packageLabel} = {product.unitsPerPackage.toLocaleString('es-CO', { maximumFractionDigits: 3 })} unidades</span></> : <span className="text-mute">Sin configurar</span>}</td>
                   <td className={`px-4 py-3 text-right font-bold ${product.quantity <= 0 ? 'text-expense' : 'text-brand-dark'}`}>{product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}</td>
                   <td className="px-4 py-3">{product.isActive ? 'Activo' : 'Inactivo'}</td>
                   {isAdmin && <td className="px-4 py-3"><div className="flex items-center justify-end gap-3"><Toggle checked={product.isActive} label={`${product.isActive ? 'Desactivar' : 'Activar'} ${product.description}`} onChange={(isActive) => update.mutate({ id: product.id, payload: { pointOfSaleId, isActive } })} /><Button variant="ghost" className="px-2" title="Editar" onClick={() => openEdit(product)}><Pencil className="h-4 w-4" /></Button></div></td>}
@@ -145,6 +173,16 @@ export function ProductsPage() {
         <form onSubmit={submit} className="space-y-4">
           <p className="rounded-lg bg-paper px-3 py-2 text-sm">Punto de venta: <strong>{pointName}</strong></p>
           <Field label="Descripción"><Input required minLength={2} maxLength={191} autoFocus value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
+          <Field label="Precio unitario"><Input required type="number" min="0.01" step="0.01" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} placeholder="0" /></Field>
+          <div className="rounded-xl border border-line p-4">
+            <p className="text-sm font-bold">Presentación alternativa</p>
+            <p className="mb-3 text-xs text-mute">Opcional. Por ejemplo: 1 paca equivale a 25 unidades y tiene su propio precio.</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Nombre"><Input maxLength={100} value={packageLabel} onChange={(event) => setPackageLabel(event.target.value)} placeholder="Paca" /></Field>
+              <Field label="Unidades"><Input type="number" min="0.001" step="0.001" value={unitsPerPackage} onChange={(event) => setUnitsPerPackage(event.target.value)} placeholder="25" /></Field>
+              <Field label="Precio"><Input type="number" min="0.01" step="0.01" value={packagePrice} onChange={(event) => setPackagePrice(event.target.value)} placeholder="0" /></Field>
+            </div>
+          </div>
           {error && <p className="rounded-lg bg-expense-soft px-3 py-2 text-sm font-medium text-expense">{error}</p>}
           <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button type="submit" disabled={create.isPending || update.isPending}>{create.isPending || update.isPending ? 'Guardando...' : 'Guardar'}</Button></div>
         </form>

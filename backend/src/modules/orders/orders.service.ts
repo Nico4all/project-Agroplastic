@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryMovementType, OrderPaymentMethod, Prisma, RecordStatus, User } from '@prisma/client';
+import { InventoryMovementType, OrderPaymentMethod, OrderSaleUnit, Prisma, RecordStatus, User } from '@prisma/client';
 import { Workbook } from 'exceljs';
 import { decimalToNumber } from '../../common/helpers/money';
 import {
@@ -69,11 +69,27 @@ export class OrdersService {
     const items = dto.items.map((item) => {
       const stock = stocksByProduct.get(item.productId)!;
       const quantity = new Prisma.Decimal(item.quantity);
-      const unitPrice = new Prisma.Decimal(item.unitPrice);
+      const saleUnit = item.saleUnit || OrderSaleUnit.UNIT;
+      const isPackage = saleUnit === OrderSaleUnit.PACKAGE;
+      if (isPackage && (!stock.packageLabel || !stock.unitsPerPackage || !stock.packagePrice)) {
+        throw new BadRequestException(`${stock.product.description} no tiene una presentacion alternativa configurada`);
+      }
+      const presentationLabel = isPackage ? stock.packageLabel! : 'Unidad';
+      const inventoryQuantity = (isPackage ? quantity.mul(stock.unitsPerPackage!) : quantity).toDecimalPlaces(3);
+      if (inventoryQuantity.lessThanOrEqualTo(0)) {
+        throw new BadRequestException(`La cantidad de inventario para ${stock.product.description} debe ser mayor a cero`);
+      }
+      const unitPrice = isPackage ? stock.packagePrice! : stock.unitPrice;
+      if (unitPrice.lessThanOrEqualTo(0)) {
+        throw new BadRequestException(`${stock.product.description} no tiene un precio configurado para ${presentationLabel}`);
+      }
       return {
         productId: stock.productId,
         productDescription: stock.product.description,
         quantity,
+        saleUnit,
+        presentationLabel,
+        inventoryQuantity,
         unitPrice,
         lineTotal: quantity.mul(unitPrice).toDecimalPlaces(2),
       };
@@ -81,7 +97,7 @@ export class OrdersService {
     const requestedQuantityByProduct = new Map<string, Prisma.Decimal>();
     for (const item of items) {
       const currentQuantity = requestedQuantityByProduct.get(item.productId) || new Prisma.Decimal(0);
-      requestedQuantityByProduct.set(item.productId, currentQuantity.add(item.quantity));
+      requestedQuantityByProduct.set(item.productId, currentQuantity.add(item.inventoryQuantity));
     }
     const totalAmount = items.reduce((total, item) => total.add(item.lineTotal), new Prisma.Decimal(0));
     if (new Set(dto.payments.map((payment) => payment.method)).size !== dto.payments.length) {
@@ -206,7 +222,7 @@ export class OrdersService {
         const returnedQuantityByProduct = new Map<string, Prisma.Decimal>();
         for (const item of current.items) {
           const currentQuantity = returnedQuantityByProduct.get(item.productId) || new Prisma.Decimal(0);
-          returnedQuantityByProduct.set(item.productId, currentQuantity.add(item.quantity));
+          returnedQuantityByProduct.set(item.productId, currentQuantity.add(item.inventoryQuantity));
         }
         for (const [productId, quantity] of returnedQuantityByProduct) {
           const stock = await tx.inventoryStock.update({
@@ -257,6 +273,7 @@ export class OrdersService {
       items: order.items.map((item) => ({
         description: item.productDescription,
         quantity: decimalToNumber(item.quantity),
+        presentationLabel: item.presentationLabel,
         unitPrice: decimalToNumber(item.unitPrice),
         lineTotal: decimalToNumber(item.lineTotal),
       })),
@@ -532,6 +549,7 @@ export class OrdersService {
       items: order.items.map((item: any) => ({
         ...item,
         quantity: decimalToNumber(item.quantity),
+        inventoryQuantity: decimalToNumber(item.inventoryQuantity),
         unitPrice: decimalToNumber(item.unitPrice),
         lineTotal: decimalToNumber(item.lineTotal),
       })),

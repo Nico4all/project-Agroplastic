@@ -47,6 +47,7 @@ export class ProductsService {
     const description = cleanDisplayText(dto.description);
     if (!description) throw new BadRequestException('La descripcion es obligatoria');
     const normalizedDescription = normalizeDescription(description);
+    const packageConfiguration = this.packageConfiguration(dto);
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -61,7 +62,12 @@ export class ProductsService {
         });
         if (exists) throw new ConflictException('El producto ya existe en este punto de venta');
         return tx.inventoryStock.create({
-          data: { pointOfSaleId, productId: product.id },
+          data: {
+            pointOfSaleId,
+            productId: product.id,
+            unitPrice: new Prisma.Decimal(dto.unitPrice),
+            ...packageConfiguration,
+          },
           include: { product: true, pointOfSale: { select: { id: true, name: true } } },
         });
       });
@@ -77,8 +83,10 @@ export class ProductsService {
   async update(userId: string, id: string, dto: UpdateProductDto) {
     const actor = await this.users.ensureAdmin(userId);
     const pointOfSaleId = await this.resolvePointOfSale(actor, dto.pointOfSaleId);
-    if (dto.description === undefined && dto.isActive === undefined) {
-      throw new BadRequestException('Debes indicar la descripcion o el estado');
+    const packageConfigurationChanged =
+      dto.packageLabel !== undefined || dto.unitsPerPackage !== undefined || dto.packagePrice !== undefined;
+    if (dto.description === undefined && dto.isActive === undefined && dto.unitPrice === undefined && !packageConfigurationChanged) {
+      throw new BadRequestException('Debes indicar la descripcion, el precio, la presentacion o el estado');
     }
     const current = await this.prisma.inventoryStock.findUnique({
       where: { pointOfSaleId_productId: { pointOfSaleId, productId: id } },
@@ -88,6 +96,13 @@ export class ProductsService {
 
     const description = dto.description === undefined ? undefined : cleanDisplayText(dto.description);
     if (description !== undefined && !description) throw new BadRequestException('La descripcion es obligatoria');
+    const packageConfiguration = packageConfigurationChanged
+      ? this.packageConfiguration({
+          packageLabel: dto.packageLabel !== undefined ? dto.packageLabel : current.packageLabel,
+          unitsPerPackage: dto.unitsPerPackage !== undefined ? dto.unitsPerPackage : current.unitsPerPackage,
+          packagePrice: dto.packagePrice !== undefined ? dto.packagePrice : current.packagePrice,
+        })
+      : undefined;
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -99,7 +114,11 @@ export class ProductsService {
         }
         return tx.inventoryStock.update({
           where: { id: current.id },
-          data: dto.isActive === undefined ? {} : { isActive: dto.isActive },
+          data: {
+            ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+            ...(dto.unitPrice !== undefined ? { unitPrice: new Prisma.Decimal(dto.unitPrice) } : {}),
+            ...(packageConfiguration || {}),
+          },
           include: { product: true, pointOfSale: { select: { id: true, name: true } } },
         });
       });
@@ -120,6 +139,26 @@ export class ProductsService {
     return pointOfSaleId;
   }
 
+  private packageConfiguration(input: {
+    packageLabel?: string | null;
+    unitsPerPackage?: number | Prisma.Decimal | null;
+    packagePrice?: number | Prisma.Decimal | null;
+  }) {
+    const packageLabel = cleanDisplayText(input.packageLabel || '') || null;
+    const unitsPerPackage = input.unitsPerPackage == null ? null : new Prisma.Decimal(input.unitsPerPackage);
+    const packagePrice = input.packagePrice == null ? null : new Prisma.Decimal(input.packagePrice);
+    const hasAnyValue = packageLabel !== null || unitsPerPackage !== null || packagePrice !== null;
+
+    if (!hasAnyValue) return { packageLabel: null, unitsPerPackage: null, packagePrice: null };
+    if (!packageLabel || !unitsPerPackage || !packagePrice) {
+      throw new BadRequestException('Para habilitar otra presentacion indica el nombre, las unidades equivalentes y su precio');
+    }
+    if (unitsPerPackage.lessThanOrEqualTo(0) || packagePrice.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('La equivalencia y el precio de la presentacion deben ser mayores a cero');
+    }
+    return { packageLabel, unitsPerPackage, packagePrice };
+  }
+
   private serialize(row: any) {
     return {
       id: row.product.id,
@@ -128,6 +167,10 @@ export class ProductsService {
       pointOfSale: row.pointOfSale,
       description: row.product.description,
       quantity: decimalToNumber(row.quantity),
+      unitPrice: decimalToNumber(row.unitPrice),
+      packageLabel: row.packageLabel,
+      unitsPerPackage: row.unitsPerPackage == null ? null : decimalToNumber(row.unitsPerPackage),
+      packagePrice: row.packagePrice == null ? null : decimalToNumber(row.packagePrice),
       isActive: Boolean(row.isActive),
       createdAt: row.product.createdAt,
       updatedAt: row.updatedAt,

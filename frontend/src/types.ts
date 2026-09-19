@@ -173,6 +173,10 @@ export type Product = {
   pointOfSale?: Pick<PointOfSale, 'id' | 'name'>;
   description: string;
   quantity: number;
+  unitPrice: number;
+  packageLabel?: string | null;
+  unitsPerPackage?: number | null;
+  packagePrice?: number | null;
   isActive: boolean;
 };
 
@@ -356,6 +360,9 @@ export type OrderItem = {
   productId: string;
   productDescription: string;
   quantity: number;
+  saleUnit: 'UNIT' | 'PACKAGE';
+  presentationLabel: string;
+  inventoryQuantity: number;
   unitPrice: number;
   lineTotal: number;
 };

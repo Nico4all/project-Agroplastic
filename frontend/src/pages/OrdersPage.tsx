@@ -9,9 +9,9 @@ import { downloadBlob, openBlob } from '../utils/download';
 import { dateInput, money } from '../utils/format';
 import { isAdminRole } from '../utils/roles';
 
-type OrderLineForm = { productId: string; quantity: string; unitPrice: string };
+type OrderLineForm = { productId: string; quantity: string; saleUnit: 'UNIT' | 'PACKAGE' };
 type PaymentLineForm = { method: OrderPaymentMethod; amount: string };
-const emptyLine = (): OrderLineForm => ({ productId: '', quantity: '1', unitPrice: '' });
+const emptyLine = (): OrderLineForm => ({ productId: '', quantity: '1', saleUnit: 'UNIT' });
 const emptyPayment = (): PaymentLineForm => ({ method: 'CASH', amount: '' });
 const todayBogota = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
@@ -63,9 +63,13 @@ export function OrdersPage() {
   }));
   const productOptions = products.map((product) => ({
     value: product.id,
-    label: `${product.description} - disponible ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
+    label: `${product.description} - ${money(product.unitPrice)} - disponible ${product.quantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })}`,
   }));
-  const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
+  const total = lines.reduce((sum, line) => {
+    const product = products.find((item) => item.id === line.productId);
+    const unitPrice = line.saleUnit === 'PACKAGE' ? product?.packagePrice || 0 : product?.unitPrice || 0;
+    return sum + Number(line.quantity || 0) * unitPrice;
+  }, 0);
   const paymentTotal = paymentLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const paymentDifference = Math.round((total - paymentTotal) * 100) / 100;
 
@@ -110,6 +114,7 @@ export function OrdersPage() {
   };
 
   const openCreate = () => {
+    queryClient.invalidateQueries({ queryKey: ['products', 'order-form'] });
     setClientId('');
     setDeliveryAddress('');
     setClientPhone('');
@@ -188,11 +193,22 @@ export function OrdersPage() {
       setError('Selecciona un producto en cada linea');
       return;
     }
+    const lineWithoutPrice = lines.find((line) => {
+      const product = products.find((item) => item.id === line.productId);
+      return !product || (line.saleUnit === 'PACKAGE' ? !product.packageLabel || !product.unitsPerPackage || !product.packagePrice || product.packagePrice <= 0 : product.unitPrice <= 0);
+    });
+    if (lineWithoutPrice) {
+      const product = products.find((item) => item.id === lineWithoutPrice.productId);
+      setError(`${product?.description || 'Uno de los productos'} no tiene configurada la presentación o su precio. Solicita a un administrador que lo actualice.`);
+      return;
+    }
     const requestedQuantityByProduct = new Map<string, number>();
     lines.forEach((line) => {
+      const product = products.find((item) => item.id === line.productId);
+      const inventoryQuantity = Number(line.quantity || 0) * (line.saleUnit === 'PACKAGE' ? product?.unitsPerPackage || 0 : 1);
       requestedQuantityByProduct.set(
         line.productId,
-        (requestedQuantityByProduct.get(line.productId) || 0) + Number(line.quantity || 0),
+        (requestedQuantityByProduct.get(line.productId) || 0) + inventoryQuantity,
       );
     });
     const insufficient = [...requestedQuantityByProduct].find(([productId, requestedQuantity]) => {
@@ -231,7 +247,7 @@ export function OrdersPage() {
       items: lines.map((line) => ({
         productId: line.productId,
         quantity: Number(line.quantity),
-        unitPrice: Number(line.unitPrice),
+        saleUnit: line.saleUnit,
       })),
       payments: paymentLines.map((line) => ({ method: line.method, amount: Number(line.amount) })),
     });
@@ -299,7 +315,7 @@ export function OrdersPage() {
                     <td className="px-4 py-3">
                       <ul className="space-y-1">
                         {order.items.slice(0, 2).map((item) => (
-                          <li key={item.id}><span className="font-medium">{item.productDescription}</span> <span className="text-xs text-mute">x {item.quantity} a {money(item.unitPrice)}</span></li>
+                          <li key={item.id}><span className="font-medium">{item.productDescription}</span> <span className="text-xs text-mute">x {item.quantity} {item.presentationLabel} a {money(item.unitPrice)}</span></li>
                         ))}
                         {order.items.length > 2 && <li className="text-xs font-semibold text-brand-dark">+ {order.items.length - 2} productos mas</li>}
                       </ul>
@@ -433,7 +449,7 @@ export function OrdersPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold">Productos</p>
-                <p className="text-xs text-mute">Puedes repetir un producto para asignarle otro precio.</p>
+                <p className="text-xs text-mute">El precio se carga automáticamente desde el catálogo y no puede modificarse aquí.</p>
               </div>
               <Button variant="secondary" className="px-3 py-1.5" onClick={() => setLines((current) => [...current, emptyLine()])}><Plus className="h-4 w-4" /> Agregar</Button>
             </div>
@@ -442,15 +458,26 @@ export function OrdersPage() {
                 <Field label={`Producto ${index + 1}`}>
                   <SearchableSelect
                     value={line.productId}
-                    onChange={(productId) => updateLine(index, { productId })}
+                    onChange={(productId) => updateLine(index, { productId, saleUnit: 'UNIT' })}
                     options={productOptions}
                     placeholder="Buscar producto"
                     emptyMessage="No se encontraron productos"
                   />
                 </Field>
-                <div className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2">
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                  <Field label="Presentación">
+                    <Select value={line.saleUnit} onChange={(event) => updateLine(index, { saleUnit: event.target.value as 'UNIT' | 'PACKAGE' })}>
+                      <option value="UNIT">Unidad</option>
+                      {(() => {
+                        const product = products.find((item) => item.id === line.productId);
+                        return product?.packageLabel && product.unitsPerPackage && product.packagePrice
+                          ? <option value="PACKAGE">{product.packageLabel} ({product.unitsPerPackage.toLocaleString('es-CO', { maximumFractionDigits: 3 })} unidades)</option>
+                          : null;
+                      })()}
+                    </Select>
+                  </Field>
                   <Field label="Cantidad"><Input required type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></Field>
-                  <Field label="Valor unitario"><Input required type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} /></Field>
+                  <Field label="Precio de la presentación"><Input disabled value={line.productId ? money(line.saleUnit === 'PACKAGE' ? products.find((product) => product.id === line.productId)?.packagePrice || 0 : products.find((product) => product.id === line.productId)?.unitPrice || 0) : ''} placeholder="Selecciona un producto" /></Field>
                   <div className="flex items-end"><Button variant="ghost" className="px-2 text-expense" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} title="Quitar producto"><Trash2 className="h-4 w-4" /></Button></div>
                 </div>
               </div>
@@ -540,7 +567,7 @@ export function OrdersPage() {
                     {viewingOrder.items.map((item) => (
                       <tr key={item.id}>
                         <td className="px-4 py-3 font-semibold">{item.productDescription}</td>
-                        <td className="px-4 py-3 text-right">{item.quantity}</td>
+                        <td className="px-4 py-3 text-right"><span className="font-semibold">{item.quantity} {item.presentationLabel}</span>{item.saleUnit === 'PACKAGE' && <span className="block text-xs text-mute">{item.inventoryQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })} unidades de inventario</span>}</td>
                         <td className="money px-4 py-3 text-right">{money(item.unitPrice)}</td>
                         <td className="money px-4 py-3 text-right font-semibold">{money(item.lineTotal)}</td>
                       </tr>
